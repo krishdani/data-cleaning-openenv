@@ -143,7 +143,13 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         return response.text.strip() if response.text else "error: empty response"
     except Exception as native_e:
         if "429" in str(native_e):
-            return "error: API Rate Limit reached. Please wait 60 seconds and try again."
+            # Try a different model version (Flash-8B has a separate quota)
+            try:
+                model_8b = genai.GenerativeModel("gemini-1.5-flash-8b")
+                resp_8b = model_8b.generate_content(prompt, generation_config=genai.types.GenerationConfig(max_output_tokens=max_tokens, temperature=0.2))
+                return resp_8b.text.strip()
+            except:
+                return "error: API Rate Limit reached (Daily Quota likely exhausted). Please check AI Studio Console."
         # Fallback to OpenAI Client
         try:
             from openai import OpenAI
@@ -175,12 +181,14 @@ def gemini_agent_decision(observation: Dict[str, Any], previous_actions: List[st
 # ---------------------------------------------------------------------------
 
 @app.get("/api/diagnostics")
+@app.get("/diagnostics")
 def get_diagnostics():
     key = os.getenv("OPENAI_API_KEY", "")
     return {
-        "gemini_api_key": "Set" if key and "your-gemini" not in key else "Missing",
-        "api_base": os.getenv("API_BASE_URL"),
-        "model": os.getenv("MODEL_NAME"),
+        "status": "online",
+        "gemini_api_key": "Configured" if key and "your-gemini" not in key else "Missing",
+        "model": os.getenv("MODEL_NAME", "gemini-1.5-flash"),
+        "base_url": os.getenv("API_BASE_URL", "Native SDK Active"),
         "tasks": list(TASKS.keys())
     }
 
