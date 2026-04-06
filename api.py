@@ -215,6 +215,17 @@ async def upload_dataset(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def calculate_reward(score: float) -> Dict[str, Any]:
+    """Calculate hackathon rewards based on audit score."""
+    if score >= 1.0:
+        return {"tier": "Grand Slam", "points": 1000, "message": "🟡 GOLD MEDAL: Perfect Audit! You're a Data Engineering Pro."}
+    elif score >= 0.8:
+        return {"tier": "Expert", "points": 500, "message": "⚪ SILVER MEDAL: Excellent work. You caught almost everything."}
+    elif score >= 0.5:
+        return {"tier": "Contributor", "points": 200, "message": "🟤 BRONZE MEDAL: Good effort. There's still room to improve."}
+    else:
+        return {"tier": "Novice", "points": 50, "message": "🔵 NOVICE: Keep practicing. Data cleaning takes a sharp eye!"}
+
 @app.post("/api/review-input")
 def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     global _env
@@ -266,13 +277,17 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     except Exception as e:
         # If it's an error from gemini_call, report it directly
         if raw_review.startswith("error:"):
-            return {"score": 0.0, "critique": f"AI Error: {raw_review[6:100]}"}
-        
-        # Last ditch effort: try repair with current clean string
-        try:
-            return json.loads(repair_json(clean))
-        except:
-            return {"score": 0.0, "critique": f"AI Parsing Error: {str(e)} | Content: {raw_review[:40]}"}
+            res = {"score": 0.0, "critique": f"AI Error: {raw_review[6:100]}"}
+        else:
+            # Last ditch effort: try repair with current clean string
+            try:
+                res = json.loads(repair_json(clean))
+            except:
+                res = {"score": 0.0, "critique": f"AI Parsing Error: {str(e)} | Content: {raw_review[:40]}"}
+    
+    # Add reward to the response
+    res["reward"] = calculate_reward(res.get("score", 0.0))
+    return res
 
 @app.post("/reset")
 @app.post("/api/reset")

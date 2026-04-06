@@ -70,7 +70,19 @@ export async function fetchOriginalData(): Promise<Record<string, any>[]> {
   return res.json();
 }
 
-export async function reviewManualAudit(userInput: string): Promise<{ score: number; critique: string }> {
+export interface AuditReward {
+  tier: string;
+  points: number;
+  message: string;
+}
+
+export interface AuditResult {
+  score: number;
+  critique: string;
+  reward: AuditReward;
+}
+
+export async function reviewManualAudit(userInput: string): Promise<AuditResult> {
   const res = await fetch(`${API_BASE}/api/review-input`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

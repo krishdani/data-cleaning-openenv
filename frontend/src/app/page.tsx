@@ -12,7 +12,8 @@ import {
   TaskInfo, 
   CleanResult, 
   StepLog, 
-  Diagnostics 
+  Diagnostics,
+  AuditResult
 } from "@/lib/api";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { RewardChart } from "@/components/RewardChart";
@@ -35,7 +36,10 @@ import {
   Trophy,
   LayoutGrid,
   FileText,
-  MousePointer2
+  MousePointer2,
+  Medal,
+  Award,
+  Coins
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -50,7 +54,7 @@ export default function Home() {
   const [result, setResult] = useState<CleanResult | null>(null);
   const [originalData, setOriginalData] = useState<Record<string, any>[]>([]);
   const [auditInput, setAuditInput] = useState("");
-  const [auditResult, setAuditResult] = useState<{ score: number; critique: string } | null>(null);
+  const [auditResult, setAuditResult] = useState<AuditResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAuditing, setIsAuditing] = useState(false);
   const [bestScore, setBestScore] = useState<number>(0);
@@ -277,19 +281,70 @@ export default function Home() {
                         </button>
 
                         {auditResult && (
-                            <div className={clsx(
-                                "p-5 rounded-2xl border flex items-start gap-4 transition-all animate-in zoom-in-95",
-                                auditResult.score > 0.7 ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
-                            )}>
-                                <div className={clsx(
-                                    "w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-lg",
-                                    auditResult.score > 0.7 ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
-                                )}>
-                                    <h4 className="text-lg font-black italic">{(auditResult.score * 100).toFixed(0)}</h4>
+                            <div className="flex flex-col gap-4 animate-in slide-in-from-top-4 duration-500">
+                                {/* Score and Critique Side-by-Side */}
+                                <div className="grid grid-cols-12 gap-4">
+                                    <div className={clsx(
+                                        "col-span-12 md:col-span-3 p-6 rounded-2xl border flex flex-col items-center justify-center gap-2 shadow-xl",
+                                        auditResult.score > 0.7 ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
+                                    )}>
+                                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-2">SCORE</div>
+                                        <div className={clsx(
+                                            "text-5xl font-black italic",
+                                            auditResult.score > 0.7 ? "text-emerald-400" : "text-red-400"
+                                        )}>
+                                            {(auditResult.score * 100).toFixed(0)}
+                                        </div>
+                                        <div className="text-[10px] font-bold text-zinc-600">Normalization: [0, 1]</div>
+                                    </div>
+
+                                    <div className="col-span-12 md:col-span-9 p-6 rounded-2xl border border-zinc-900 bg-zinc-950/50 backdrop-blur-sm flex flex-col gap-2">
+                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                                            <FileText className="w-3.5 h-3.5" /> AI Review Critique
+                                        </div>
+                                        <p className="text-[14px] text-zinc-300 leading-relaxed italic">
+                                            "{auditResult.critique}"
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="pt-1">
-                                    <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">AI Review Critique</div>
-                                    <p className="text-[13px] text-zinc-200 leading-snug">"{auditResult.critique}"</p>
+
+                                {/* Reward System Box */}
+                                <div className="bg-gradient-to-r from-zinc-900 to-black border border-zinc-800 rounded-2xl p-6 relative overflow-hidden group">
+                                    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                                        <Trophy className="w-24 h-24 text-white" />
+                                    </div>
+                                    
+                                    <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                                        <div className="flex items-center gap-5">
+                                            <div className={clsx(
+                                                "w-16 h-16 rounded-2xl flex items-center justify-center shadow-2xl transition-transform group-hover:scale-110",
+                                                auditResult.reward.tier === "Grand Slam" ? "bg-amber-400 text-amber-950" :
+                                                auditResult.reward.tier === "Expert" ? "bg-zinc-300 text-zinc-900" :
+                                                auditResult.reward.tier === "Contributor" ? "bg-orange-700 text-orange-50" :
+                                                "bg-blue-600 text-white"
+                                            )}>
+                                                {auditResult.reward.tier === "Grand Slam" ? <Trophy className="w-8 h-8" /> :
+                                                 auditResult.reward.tier === "Expert" ? <Medal className="w-8 h-8" /> :
+                                                 auditResult.reward.tier === "Contributor" ? <Award className="w-8 h-8" /> :
+                                                 <MousePointer2 className="w-8 h-8" />}
+                                            </div>
+                                            <div>
+                                                <div className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 mb-1">HACKATHON REWARD</div>
+                                                <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">
+                                                    {auditResult.reward.tier} TIER
+                                                </h3>
+                                                <p className="text-[11px] text-zinc-400 font-medium max-w-xs">{auditResult.reward.message}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col items-end gap-2 pr-4">
+                                            <div className="flex items-center gap-2 bg-zinc-800/50 px-4 py-2 rounded-xl border border-zinc-700">
+                                                <Coins className="w-4 h-4 text-amber-400" />
+                                                <span className="text-lg font-black text-white">+{auditResult.reward.points} <span className="text-[10px] text-zinc-500 ml-1 uppercase">DP</span></span>
+                                            </div>
+                                            <div className="text-[10px] font-bold text-indigo-400 animate-pulse uppercase tracking-widest">Rewards Unlocked!</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
