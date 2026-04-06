@@ -7,3 +7,4 @@ openai>=1.0.0
 httpx
 python-dotenv
 python-multipart
+google-generativeai

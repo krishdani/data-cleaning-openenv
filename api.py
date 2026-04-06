@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, ConfigDict, AliasChoices
 from dotenv import load_dotenv
 import csv
 import io
+import google.generativeai as genai
 
 from env import DataCleaningEnv, TASKS, grade
 from env.schemas import Action, Observation, StepResponse, ResetResponse
@@ -104,7 +105,6 @@ def repair_json(s: str) -> str:
     if s.count('{') > s.count('}'):
         s += '}' * (s.count('{') - s.count('}'))
     if s.count('"') % 2 != 0:
-        # If the last character is not a quote, try adding one before the closing brace
         if s.endswith('}'):
             s = s[:-1] + '"}'
         else:
@@ -112,32 +112,44 @@ def repair_json(s: str) -> str:
     return s
 
 def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
-    """Utility for calling Gemini."""
+    """Utility for calling Gemini using Native SDK or OpenAI fallback."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key or "your-gemini" in api_key:
+        return "error: missing key"
+    
     try:
-        from openai import OpenAI
-        api_key = os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-        model = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
+        # Try Native Google SDK First (More reliable)
+        genai.configure(api_key=api_key)
+        model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
+        model_id = model_name.replace("models/", "")
         
-        # Use model name directly for OpenAI compatibility endpoint
-        
-        if not api_key or "your-gemini" in api_key:
-            return "error: missing key"
-
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": "You are a strict JSON auditor. Return only raw JSON string."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=max_tokens,
-            temperature=0
+        model = genai.GenerativeModel(model_id)
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=0.1
+            )
         )
-        content = response.choices[0].message.content
-        return content.strip() if content else "error: empty AI response"
-    except Exception as e:
-        return f"error: {str(e)}"
+        return response.text.strip() if response.text else "error: empty response"
+    except Exception as native_e:
+        # Fallback to OpenAI Client
+        try:
+            from openai import OpenAI
+            base_url = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
+            
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": f"Return ONLY raw JSON.\n\n{prompt}"}],
+                max_tokens=max_tokens,
+                temperature=0.1
+            )
+            content = response.choices[0].message.content
+            return content.strip() if content else "error: empty response"
+        except Exception as openai_e:
+            return f"error: Native: {str(native_e)} | OpenAI: {str(openai_e)}"
 
 def gemini_agent_decision(observation: Dict[str, Any], previous_actions: List[str], task: str) -> str:
     """Use Gemini to choose the next cleaning action."""
