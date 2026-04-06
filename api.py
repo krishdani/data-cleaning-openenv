@@ -115,7 +115,8 @@ def gemini_call(prompt: str, max_tokens: int = 500) -> str:
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,
-            temperature=0
+            temperature=0,
+            response_format={"type": "json_object"}
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -175,22 +176,38 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     state = _env.state()
     issues = state.issues
     
-    prompt = f"System: You are an expert data auditor. Review this user's audit. Return VALID JSON ONLY.\n\nGROUND TRUTH: {json.dumps([dict(i) for i in issues])}\nUSER AUDIT: '{req.user_input}'\n\nREQUIRED FORMAT: {{\"score\": 0.0-1.0, \"critique\": \"short string\"}}"
+    prompt = (
+        f"Return ONLY valid JSON. Do NOT include markdown (```). Use double quotes. "
+        f"Format: {{\"score\": number, \"critique\": \"string\"}}\n\n"
+        f"GROUND TRUTH: {json.dumps([dict(i) for i in issues])}\n"
+        f"USER AUDIT: '{req.user_input}'"
+    )
     raw_review = gemini_call(prompt, max_tokens=300)
     
     try:
-        # Robust JSON extraction: Find content between first { and last }
-        start = raw_review.find("{")
-        end = raw_review.rfind("}")
-        if start != -1 and end != -1:
-            json_str = raw_review[start:end+1]
-            return json.loads(json_str)
+        # Robust cleanup
+        clean = raw_review.strip()
+        if "```" in clean: clean = clean.split("```")[1] if "```" in clean else clean
+        if "json" in clean[:10]: clean = clean.replace("json", "", 1).strip()
         
-        # Fallback if no JSON found but maybe it returned raw JSON
-        return json.loads(raw_review.strip())
+        # Handle cases where model uses single quotes instead of double
+        if "'" in clean and '"' not in clean:
+            clean = clean.replace("'", '"')
+
+        # Find first { and last }
+        start = clean.find("{")
+        end = clean.rfind("}")
+        
+        if start != -1:
+            if end == -1: # Truncated
+                json_str = clean[start:] + "}"
+            else:
+                json_str = clean[start:end+1]
+            return json.loads(json_str)
+            
+        return json.loads(clean)
     except Exception as e:
-        cleaned_raw = raw_review.replace('"', "'").replace("\n", " ")
-        return {"score": 0.0, "critique": f"AI Parsing Error: {cleaned_raw[:100]}"}
+        return {"score": 0.0, "critique": f"AI Parsing Error: {raw_review[:50]}"}
 
 @app.post("/reset")
 @app.post("/api/reset")
