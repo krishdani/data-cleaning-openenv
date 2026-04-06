@@ -97,7 +97,7 @@ class CleanRunResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Gemini Agent & Reviewer
 # ---------------------------------------------------------------------------
-def gemini_call(prompt: str, max_tokens: int = 200) -> str:
+def gemini_call(prompt: str, max_tokens: int = 500) -> str:
     """Utility for calling Gemini."""
     try:
         from openai import OpenAI
@@ -175,17 +175,22 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     state = _env.state()
     issues = state.issues
     
-    prompt = f"Review this user's audit of a dataset. GROUND TRUTH ISSUES: {json.dumps([dict(i) for i in issues])}. USER AUDIT: '{req.user_input}'. Is the user's audit accurate? Provide a score (0.0 to 1.0) and a short critique (1 sentence). Return as JSON: {{\"score\": 0.8, \"critique\": \"...\"}}"
-    raw_review = gemini_call(prompt)
+    prompt = f"System: You are an expert data auditor. Review this user's audit. Return VALID JSON ONLY.\n\nGROUND TRUTH: {json.dumps([dict(i) for i in issues])}\nUSER AUDIT: '{req.user_input}'\n\nREQUIRED FORMAT: {{\"score\": 0.0-1.0, \"critique\": \"short string\"}}"
+    raw_review = gemini_call(prompt, max_tokens=300)
     
     try:
-        # Simple extraction if model returns markdown/text
-        review_clean = raw_review.strip()
-        if "```json" in review_clean:
-            review_clean = review_clean.split("```json")[1].split("```")[0]
-        return json.loads(review_clean)
-    except:
-        return {"score": 0.0, "critique": f"Failed to parse AI review: {raw_review}"}
+        # Robust JSON extraction: Find content between first { and last }
+        start = raw_review.find("{")
+        end = raw_review.rfind("}")
+        if start != -1 and end != -1:
+            json_str = raw_review[start:end+1]
+            return json.loads(json_str)
+        
+        # Fallback if no JSON found but maybe it returned raw JSON
+        return json.loads(raw_review.strip())
+    except Exception as e:
+        cleaned_raw = raw_review.replace('"', "'").replace("\n", " ")
+        return {"score": 0.0, "critique": f"AI Parsing Error: {cleaned_raw[:100]}"}
 
 @app.post("/reset")
 @app.post("/api/reset")
