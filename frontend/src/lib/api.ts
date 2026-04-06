@@ -80,11 +80,21 @@ export async function reviewManualAudit(userInput: string): Promise<{ score: num
   return res.json();
 }
 
+export async function resetDataset(task: string): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/api/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task }),
+  });
+  if (!res.ok) throw new Error("Reset failed");
+  return res.json();
+}
+
 export async function runCleaning(task: string): Promise<CleanResult> {
   const res = await fetch(`${API_BASE}/api/clean`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task, mode: "baseline" }),
+    body: JSON.stringify({ task }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Unknown error" }));

@@ -8,6 +8,7 @@ import {
   uploadDataset, 
   fetchOriginalData, 
   reviewManualAudit,
+  resetDataset,
   TaskInfo, 
   CleanResult, 
   StepLog, 
@@ -77,15 +78,16 @@ export default function Home() {
   const handleTaskSelect = async (task: string) => {
     handleReset();
     setSelectedTask(task);
-  };
-
-  const handleInitChallenge = async (task: string) => {
+    setIsAuditing(true); // Loading...
     try {
+        await resetDataset(task);
         const data = await fetchOriginalData();
         setOriginalData(data);
         setStage("initialized");
     } catch (e: any) {
-        setError(e.message);
+        setError("Failed to load dataset: " + e.message);
+    } finally {
+        setIsAuditing(false);
     }
   };
 
@@ -240,30 +242,28 @@ export default function Home() {
                             </button>
                         );
                     })}
-
-                    <button 
-                        onClick={() => handleInitChallenge(selectedTask)}
-                        disabled={stage !== "idle" && stage !== "completed"}
-                        className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-500 disabled:opacity-40 transition-all shadow-xl shadow-indigo-900/10 flex items-center justify-center gap-2"
-                    >
-                         <Database className="w-4 h-4" /> Initialize Challenge
-                    </button>
                 </div>
 
                 <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+                    {/* Dataset Preview - Now at Top */}
+                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-inner min-h-[300px]">
+                        <DataTable label={`CHALLENGE DATASET: ${selectedTask.toUpperCase()}`} data={originalData} variant="before" />
+                    </div>
+
+                    {/* Manual Submission Area - Now at Bottom */}
                     <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
                         <div className="flex items-center justify-between">
                             <h2 className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 flex items-center gap-2">
-                                <Search className="w-4 h-4 text-indigo-400" /> Manual Identification Audit
+                                <Search className="w-4 h-4 text-indigo-400" /> Identification Audit
                             </h2>
-                            {stage === "initialized" && <span className="text-[10px] font-black text-emerald-400 animate-pulse flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> READY FOR AUDIT</span>}
+                            {stage === "initialized" && <span className="text-[10px] font-black text-emerald-400 animate-pulse flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> DATA LOADED - START AUDIT</span>}
                         </div>
                         
                         <textarea 
                             value={auditInput}
                             onChange={(e) => setAuditInput(e.target.value)}
-                            disabled={stage !== "initialized"}
-                            placeholder="Identify specific missing ages, malformed emails, or duplicates here..."
+                            disabled={stage !== "initialized" || isAuditing}
+                            placeholder="Type what's missing or wrong in the data above... e.g. Row 2 has a missing age, Row 5 email is invalid."
                             className="w-full h-32 bg-black border border-zinc-900 rounded-xl p-4 text-[13px] text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-indigo-500/50 transition-colors resize-none disabled:opacity-20"
                         />
 
@@ -293,10 +293,6 @@ export default function Home() {
                                 </div>
                             </div>
                         )}
-                    </div>
-
-                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-inner min-h-[400px]">
-                        <DataTable label={`PREVIEW: ${selectedTask.toUpperCase()}`} data={originalData} variant="before" />
                     </div>
                 </div>
             </div>
