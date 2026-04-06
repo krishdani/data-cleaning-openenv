@@ -97,7 +97,21 @@ class CleanRunResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Gemini Agent & Reviewer
 # ---------------------------------------------------------------------------
-def gemini_call(prompt: str, max_tokens: int = 500) -> str:
+def repair_json(s: str) -> str:
+    """Attempt to repair common JSON truncation issues."""
+    s = s.strip()
+    if not s: return "{}"
+    if s.count('{') > s.count('}'):
+        s += '}' * (s.count('{') - s.count('}'))
+    if s.count('"') % 2 != 0:
+        # If the last character is not a quote, try adding one before the closing brace
+        if s.endswith('}'):
+            s = s[:-1] + '"}'
+        else:
+            s += '"}'
+    return s
+
+def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
     """Utility for calling Gemini."""
     try:
         from openai import OpenAI
@@ -113,10 +127,12 @@ def gemini_call(prompt: str, max_tokens: int = 500) -> str:
         client = OpenAI(api_key=api_key, base_url=base_url)
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a strict JSON auditor. Return only raw JSON string."},
+                {"role": "user", "content": prompt}
+            ],
             max_tokens=max_tokens,
-            temperature=0,
-            response_format={"type": "json_object"}
+            temperature=0
         )
         content = response.choices[0].message.content
         return content.strip() if content else "error: empty AI response"
@@ -211,7 +227,12 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
         # If it's an error from gemini_call, report it directly
         if raw_review.startswith("error:"):
             return {"score": 0.0, "critique": f"AI Error: {raw_review[6:100]}"}
-        return {"score": 0.0, "critique": f"AI Parsing Error: {str(e)[:50]}"}
+        
+        # Last ditch effort: try repair
+        try:
+            return json.loads(repair_json(clean))
+        except:
+            return {"score": 0.0, "critique": f"AI Parsing Error: {str(e)} | Content: {raw_review[:40]}"}
 
 @app.post("/reset")
 @app.post("/api/reset")
