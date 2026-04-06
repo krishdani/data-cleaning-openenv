@@ -8,13 +8,15 @@ import json
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Body
+from fastapi import FastAPI, HTTPException, Request, Body, UploadFile, File
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict, AliasChoices
 from dotenv import load_dotenv
+import csv
+import io
 
 from env import DataCleaningEnv, TASKS, grade
 from env.schemas import Action, Observation, StepResponse, ResetResponse
@@ -28,11 +30,11 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 app = FastAPI(
     title="Data Cleaning OpenEnv",
-    version="1.1.0",
-    description="Hackathon Workspace: Cleaning environment with Gemini support.",
+    version="1.2.0",
+    description="Hackathon Workspace: Interactive Data Cleaning & Manual Audits.",
 )
 
-# Robust CORS for hackathon cross-origin calls
+# Robust CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,7 +43,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Debug helper for validation errors (422s)
+# Debug helper for validation errors
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     import sys
@@ -52,18 +54,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 # ---------------------------------------------------------------------------
-# Global State (Single-user for hackathon demo)
+# Global State
 # ---------------------------------------------------------------------------
 _env: Optional[DataCleaningEnv] = None
-_history: List[Dict[str, Any]] = []
+_original_data: List[Dict[str, Any]] = []
 
 # ---------------------------------------------------------------------------
-# Request Models (Pydantic V2 compliant)
+# Request Models
 # ---------------------------------------------------------------------------
 class ResetRequest(BaseModel):
     task: str = Field("easy", validation_alias=AliasChoices("task", "dataset_name"))
-    mode: str = "deterministic"  # "deterministic" or "gemini"
+    mode: str = "baseline"
     model_config = ConfigDict(populate_by_name=True)
+
+class AuditRequest(BaseModel):
+    user_input: str = Field(..., description="The issues identified by the user manually")
 
 class StepRequest(BaseModel):
     action: str = Field(..., description="The action to apply")
@@ -90,10 +95,10 @@ class CleanRunResponse(BaseModel):
     model_used: str
 
 # ---------------------------------------------------------------------------
-# Gemini OpenAI Compatibility Agent
+# Gemini Agent & Reviewer
 # ---------------------------------------------------------------------------
-def gemini_agent(observation: Dict[str, Any], previous_actions: List[str], task: str) -> str:
-    """Use Gemini (via OpenAI compatibility) to choose the next action."""
+def gemini_call(prompt: str, max_tokens: int = 200) -> str:
+    """Utility for calling Gemini."""
     try:
         from openai import OpenAI
         api_key = os.getenv("OPENAI_API_KEY")
@@ -101,27 +106,26 @@ def gemini_agent(observation: Dict[str, Any], previous_actions: List[str], task:
         model = os.getenv("MODEL_NAME", "gemini-1.5-flash")
         
         if not api_key or "your-gemini" in api_key:
-            return "deterministic_fallback"
+            return "error: missing key"
 
         client = OpenAI(api_key=api_key, base_url=base_url)
-        
-        issues = observation.get("issues", [])
-        prompt = f"Data Cleaning Agent Task. Issues: {json.dumps(issues[:5])}. Task: {task}. Previous: {previous_actions}. Next action (fix_email, convert_age, fill_missing_age, remove_duplicates, drop_invalid)? Respond with ONLY the action name."
-        
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=15,
+            max_tokens=max_tokens,
             temperature=0
         )
-        chosen = response.choices[0].message.content.strip().lower()
-        valid = {"fix_email", "convert_age", "fill_missing_age", "remove_duplicates", "drop_invalid"}
-        if chosen in valid:
-            return chosen
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Gemini call failed: {e}")
-    
-    return "deterministic_fallback"
+        return f"error: {str(e)}"
+
+def gemini_agent_decision(observation: Dict[str, Any], previous_actions: List[str], task: str) -> str:
+    """Use Gemini to choose the next cleaning action."""
+    issues = observation.get("issues", [])
+    prompt = f"Data Cleaning Agent Task. Issues: {json.dumps(issues[:5])}. Task: {task}. Previous: {previous_actions}. Next action (fix_email, convert_age, fill_missing_age, remove_duplicates, drop_invalid)? Respond with ONLY the action name."
+    chosen = gemini_call(prompt, 15).lower()
+    valid = {"fix_email", "convert_age", "fill_missing_age", "remove_duplicates", "drop_invalid"}
+    return chosen if chosen in valid else "deterministic_fallback"
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -134,23 +138,71 @@ def get_diagnostics():
         "gemini_api_key": "Set" if key and "your-gemini" not in key else "Missing",
         "api_base": os.getenv("API_BASE_URL"),
         "model": os.getenv("MODEL_NAME"),
-        "python_version": os.sys.version.split(" ")[0],
         "tasks": list(TASKS.keys())
     }
+
+@app.post("/api/upload")
+async def upload_dataset(file: UploadFile = File(...)):
+    global _env, _original_data
+    content = await file.read()
+    filename = file.filename or "uploaded.csv"
+    
+    try:
+        if filename.endswith(".csv"):
+            decoded = content.decode("utf-8")
+            reader = csv.DictReader(io.StringIO(decoded))
+            data = [row for row in reader]
+        elif filename.endswith(".json"):
+            data = json.loads(content)
+        else:
+            raise HTTPException(status_code=400, detail="Only CSV or JSON allowed.")
+        
+        _env = DataCleaningEnv(task="custom", data=data)
+        reset_resp = _env.reset()
+        _original_data = [dict(r) for r in reset_resp.observation.data]
+        return {"status": "success", "task": "custom", "row_count": len(data)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/review-input")
+def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
+    global _env
+    if not _env:
+        raise HTTPException(status_code=400, detail="Initialize a task first.")
+    
+    state = _env.state()
+    issues = state.issues
+    
+    prompt = f"Review this user's audit of a dataset. GROUND TRUTH ISSUES: {json.dumps([dict(i) for i in issues])}. USER AUDIT: '{req.user_input}'. Is the user's audit accurate? Provide a score (0.0 to 1.0) and a short critique (1 sentence). Return as JSON: {{\"score\": 0.8, \"critique\": \"...\"}}"
+    raw_review = gemini_call(prompt)
+    
+    try:
+        # Simple extraction if model returns markdown/text
+        review_clean = raw_review.strip()
+        if "```json" in review_clean:
+            review_clean = review_clean.split("```json")[1].split("```")[0]
+        return json.loads(review_clean)
+    except:
+        return {"score": 0.0, "critique": f"Failed to parse AI review: {raw_review}"}
 
 @app.post("/reset")
 @app.post("/api/reset")
 def reset_env(req: ResetRequest = Body(...)) -> Dict[str, Any]:
-    global _env
+    global _env, _original_data
     _env = DataCleaningEnv(task=req.task)
-    return _env.reset().model_dump()
+    resp = _env.reset()
+    _original_data = [dict(r) for r in resp.observation.data]
+    return resp.model_dump()
+
+@app.get("/api/original-data")
+def get_original_data():
+    return _original_data
 
 @app.post("/step")
 @app.post("/api/step")
 def step_env(req: StepRequest = Body(...)) -> Dict[str, Any]:
     global _env
     if not _env:
-        # Fallback init for safety
         _env = DataCleaningEnv(task="easy")
     
     action = Action(action=req.action, message=req.message)
@@ -167,10 +219,16 @@ def get_state() -> Dict[str, Any]:
 
 @app.post("/api/clean")
 def run_full_pipeline(req: ResetRequest) -> CleanRunResponse:
-    if req.task not in TASKS:
+    global _env
+    if req.task != "custom" and req.task not in TASKS:
         raise HTTPException(status_code=400, detail=f"Task '{req.task}' unknown.")
 
-    env = DataCleaningEnv(task=req.task)
+    # Use current custom env if it exists and task matches, else init new
+    if req.task == "custom" and _env and _env.task == "custom":
+        env = _env
+    else:
+        env = DataCleaningEnv(task=req.task)
+    
     reset_resp = env.reset()
     original_data = [dict(r) for r in reset_resp.observation.data]
     initial_issues = len(reset_resp.observation.issues)
@@ -179,21 +237,17 @@ def run_full_pipeline(req: ResetRequest) -> CleanRunResponse:
     rewards: List[float] = []
     steps_log: List[Dict[str, Any]] = []
     
-    # Priority order for deterministic fallback
     priority = ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates", "drop_invalid"]
 
     for i in range(1, 11):
         obs = {"issues": [dict(iss) for iss in env.state().issues], "data": [dict(r) for r in env.state().data]}
         
-        # Decide Action
+        # Decide Action (Prioritize Gemini for Baseline)
         action_name = "none"
-        if req.mode == "gemini":
-            ai_action = gemini_agent(obs, actions, req.task)
-            if ai_action != "deterministic_fallback":
-                action_name = ai_action
-        
-        if action_name == "none" or action_name == "deterministic_fallback":
-            # Baseline deterministic logic
+        ai_action = gemini_agent_decision(obs, actions, req.task)
+        if ai_action != "deterministic_fallback" and "error:" not in ai_action:
+            action_name = ai_action
+        else:
             action_name = next((a for a in priority if a not in actions), "drop_invalid")
 
         # Step
@@ -223,7 +277,7 @@ def run_full_pipeline(req: ResetRequest) -> CleanRunResponse:
         steps_log=steps_log,
         final_issues=[dict(iss) for iss in final_obs.issues],
         metrics=metrics,
-        model_used="gemini-1.5-flash" if req.mode == "gemini" else "deterministic-baseline"
+        model_used="gemini-1.5-flash"
     )
 
 @app.get("/api/tasks")

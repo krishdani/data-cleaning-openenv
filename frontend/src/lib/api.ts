@@ -53,11 +53,38 @@ export async function fetchDiagnostics(): Promise<Diagnostics> {
   return res.json();
 }
 
-export async function runCleaning(task: string, mode: string = "deterministic"): Promise<CleanResult> {
+export async function uploadDataset(file: File): Promise<{ task: string; row_count: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/api/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Upload failed");
+  return res.json();
+}
+
+export async function fetchOriginalData(): Promise<Record<string, any>[]> {
+  const res = await fetch(`${API_BASE}/api/original-data`);
+  if (!res.ok) throw new Error("Failed to fetch original data");
+  return res.json();
+}
+
+export async function reviewManualAudit(userInput: string): Promise<{ score: number; critique: string }> {
+  const res = await fetch(`${API_BASE}/api/review-input`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_input: userInput }),
+  });
+  if (!res.ok) throw new Error("Review failed");
+  return res.json();
+}
+
+export async function runCleaning(task: string): Promise<CleanResult> {
   const res = await fetch(`${API_BASE}/api/clean`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task, mode }), // Sends both task and mode
+    body: JSON.stringify({ task, mode: "baseline" }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Unknown error" }));
