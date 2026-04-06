@@ -118,7 +118,8 @@ def gemini_call(prompt: str, max_tokens: int = 500) -> str:
             temperature=0,
             response_format={"type": "json_object"}
         )
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        return content.strip() if content else "error: empty AI response"
     except Exception as e:
         return f"error: {str(e)}"
 
@@ -207,7 +208,10 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
             
         return json.loads(clean)
     except Exception as e:
-        return {"score": 0.0, "critique": f"AI Parsing Error: {raw_review[:50]}"}
+        # If it's an error from gemini_call, report it directly
+        if raw_review.startswith("error:"):
+            return {"score": 0.0, "critique": f"AI Error: {raw_review[6:100]}"}
+        return {"score": 0.0, "critique": f"AI Parsing Error: {str(e)[:50]}"}
 
 @app.post("/reset")
 @app.post("/api/reset")
