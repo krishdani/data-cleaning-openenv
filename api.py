@@ -124,12 +124,21 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         model_id = model_name.replace("models/", "")
         
         model = genai.GenerativeModel(model_id)
+        # Disable all safety filters to prevent truncation on participant names
+        safety = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
                 max_output_tokens=max_tokens,
-                temperature=0.1
-            )
+                temperature=0.2
+            ),
+            safety_settings=safety
         )
         return response.text.strip() if response.text else "error: empty response"
     except Exception as native_e:
@@ -144,7 +153,7 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
                 model=model_name,
                 messages=[{"role": "user", "content": f"Return ONLY raw JSON.\n\n{prompt}"}],
                 max_tokens=max_tokens,
-                temperature=0.1
+                temperature=0.2
             )
             content = response.choices[0].message.content
             return content.strip() if content else "error: empty response"
@@ -206,12 +215,21 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     issues = state.issues
     
     prompt = (
-        f"Return ONLY valid JSON. Do NOT include markdown (```). Use double quotes. "
-        f"Format: {{\"score\": number, \"critique\": \"string\"}}\n\n"
+        "You must return ONLY valid JSON.\n"
+        "Format EXACTLY like this:\n"
+        "{\n"
+        "  \"score\": <number between -1 and 1>,\n"
+        "  \"critique\": \"<short explanation>\"\n"
+        "}\n"
+        "Rules:\n"
+        "- Do NOT add extra text\n"
+        "- Do NOT break JSON\n"
+        "- Always close brackets\n"
+        "- Always include both fields\n\n"
         f"GROUND TRUTH: {json.dumps([dict(i) for i in issues])}\n"
         f"USER AUDIT: '{req.user_input}'"
     )
-    raw_review = gemini_call(prompt, max_tokens=300)
+    raw_review = gemini_call(prompt, max_tokens=1000)
     
     try:
         # Robust cleanup
@@ -219,7 +237,7 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
         if "```" in clean: clean = clean.split("```")[1] if "```" in clean else clean
         if "json" in clean[:10]: clean = clean.replace("json", "", 1).strip()
         
-        # Handle cases where model uses single quotes instead of double
+        # Handle single quotes
         if "'" in clean and '"' not in clean:
             clean = clean.replace("'", '"')
 
@@ -228,8 +246,8 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
         end = clean.rfind("}")
         
         if start != -1:
-            if end == -1: # Truncated
-                json_str = clean[start:] + "}"
+            if end == -1 or end <= start: # Truncated
+                json_str = repair_json(clean[start:])
             else:
                 json_str = clean[start:end+1]
             return json.loads(json_str)
@@ -240,7 +258,7 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
         if raw_review.startswith("error:"):
             return {"score": 0.0, "critique": f"AI Error: {raw_review[6:100]}"}
         
-        # Last ditch effort: try repair
+        # Last ditch effort: try repair with current clean string
         try:
             return json.loads(repair_json(clean))
         except:
