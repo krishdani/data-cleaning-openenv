@@ -4,7 +4,6 @@
 **/*$py.class
 venv/
 .venv/
-env/
 .env/
 env.bak/
 venv.bak/

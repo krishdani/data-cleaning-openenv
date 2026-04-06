@@ -2,7 +2,7 @@
 title: Data Cleaning OpenEnv
 emoji: 🧹
 colorFrom: green
-colorTo: teal
+colorTo: indigo
 sdk: docker
 tags:
   - openenv
