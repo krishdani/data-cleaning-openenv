@@ -186,7 +186,7 @@ def get_diagnostics():
     key = os.getenv("OPENAI_API_KEY", "")
     return {
         "status": "online",
-        "gemini_api_key": "Configured" if key and "your-gemini" not in key else "Missing",
+        "gemini_api_key": "Set" if key and "your-gemini" not in key else "Missing",
         "model": os.getenv("MODEL_NAME", "gemini-1.5-flash"),
         "base_url": os.getenv("API_BASE_URL", "Native SDK Active"),
         "tasks": list(TASKS.keys())
