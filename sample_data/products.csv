@@ -1,0 +1,11 @@
+product_name,email_contact,stock_age
+Product A,contact_a@store.com,5
+Product B,contact.b#store.com,
+Product C,contact.c@invalid,10
+Product D,contact.d@store.com,8
+Product D,contact.d@store.com,8
+Product E,contact_e@,3
+Product F,contact_f@store.com,15
+Product G,contact!g@store.com,
+Product H,contact.h@store.com,12
+Product I,contact.i@store.com,7

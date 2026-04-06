@@ -1,0 +1,96 @@
+name: data-cleaning-openenv
+version: "1.0.0"
+description: |
+  A production-ready OpenEnv environment for training AI agents on real-world data cleaning tasks.
+  Agents must detect data quality issues and apply appropriate cleaning actions step-by-step.
+
+tasks:
+  - easy
+  - medium
+  - hard
+
+action_schema:
+  type: object
+  properties:
+    action:
+      type: string
+      description: The cleaning action to apply
+      enum:
+        - remove_duplicates
+        - fill_missing_age
+        - fix_email
+        - convert_age
+        - drop_invalid
+    message:
+      type: string
+      description: Optional message or reasoning
+  required:
+    - action
+  additionalProperties: false
+
+observation_schema:
+  type: object
+  properties:
+    data:
+      type: array
+      description: Current dataset rows
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+          email:
+            type: string
+          age:
+            oneOf:
+              - type: integer
+              - type: string
+              - type: "null"
+    issues:
+      type: array
+      description: Detected data quality issues
+      items:
+        type: object
+        properties:
+          row:
+            type: integer
+            description: Row index with issue
+          type:
+            type: string
+            description: Type of issue detected
+    echoed_message:
+      type: ["string", "null"]
+  required:
+    - data
+    - issues
+
+reward_range:
+  min: -1.0
+  max: 1.0
+  description: |
+    Reward signal for agent learning:
+    +1.0  - All issues resolved (success)
+    +0.7  - Significant improvement (multiple issues fixed)
+    +0.3  - Moderate improvement (some issues fixed)
+    -0.2  - No improvement (ineffective action)
+    -1.0  - Dataset deteriorated (worse than before)
+
+task_descriptions:
+  easy:
+    name: "Easy Data Cleaning"
+    description: "Small dataset with 2-3 missing values. Agent tests basic imputation."
+    difficulty: "Beginner"
+  medium:
+    name: "Medium Data Cleaning"
+    description: "Medium dataset with 4-6 issues (missing values + format errors). Agent tests reasoning."
+    difficulty: "Intermediate"
+  hard:
+    name: "Hard Data Cleaning"
+    description: "Large noisy dataset with 7-10+ issues (duplicates, invalid formats, missing data). Comprehensive cleaning required."
+    difficulty: "Advanced"
+
+grading:
+  metric: "Final Score"
+  description: "Score = (sum of rewards + issue reduction bonus) / max_possible"
+  scale: "[0.0, 1.0]"
+  success_threshold: 0.7

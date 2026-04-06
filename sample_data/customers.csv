@@ -1,0 +1,12 @@
+name,email,age
+Alice Smith,alice.smith@example.com,28
+Bob Johnson,bob.johnson#example.com,35
+Charlie Brown,charlie@invalid,
+Charlie Brown,charlie@invalid,
+David Wilson,david.wilson@example.com,42
+Eve Davis,eve.davis@example.com,29
+Frank Miller,frank@,33
+George Taylor,george.taylor@example.com,
+Hannah Anderson,hannah!anderson@example.com,31
+Hannah Anderson,hannah!anderson@example.com,31
+Isaac Thomas,isaac.thomas@example.com,27
