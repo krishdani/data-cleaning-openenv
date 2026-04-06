@@ -103,7 +103,7 @@ def gemini_call(prompt: str, max_tokens: int = 200) -> str:
         from openai import OpenAI
         api_key = os.getenv("OPENAI_API_KEY")
         base_url = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
-        model = os.getenv("MODEL_NAME", "gemini-1.5-flash")
+        model = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
         
         # Use model name directly for OpenAI compatibility endpoint
         
