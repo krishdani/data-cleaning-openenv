@@ -142,6 +142,8 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         )
         return response.text.strip() if response.text else "error: empty response"
     except Exception as native_e:
+        if "429" in str(native_e):
+            return "error: API Rate Limit reached. Please wait 60 seconds and try again."
         # Fallback to OpenAI Client
         try:
             from openai import OpenAI
