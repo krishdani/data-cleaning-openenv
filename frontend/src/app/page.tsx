@@ -28,26 +28,31 @@ import {
   XCircle, 
   Brain, 
   Sparkles, 
-  Cpu, 
   Upload, 
-  MessageSquare, 
   Search,
-  ArrowRight
+  ArrowRight,
+  Trophy,
+  LayoutGrid,
+  FileText,
+  MousePointer2
 } from "lucide-react";
 import clsx from "clsx";
 
 type Stage = "idle" | "loaded" | "initialized" | "cleaning" | "completed";
+type ViewMode = "challenges" | "refiner";
 
 export default function Home() {
   const [tasks, setTasks] = useState<TaskInfo[]>([]);
   const [selectedTask, setSelectedTask] = useState<string>("easy");
   const [stage, setStage] = useState<Stage>("idle");
+  const [viewMode, setViewMode] = useState<ViewMode>("challenges");
   const [result, setResult] = useState<CleanResult | null>(null);
   const [originalData, setOriginalData] = useState<Record<string, any>[]>([]);
   const [auditInput, setAuditInput] = useState("");
   const [auditResult, setAuditResult] = useState<{ score: number; critique: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAuditing, setIsAuditing] = useState(false);
+  const [bestScore, setBestScore] = useState<number>(0);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,9 +60,10 @@ export default function Home() {
     fetchTasks()
       .then((t) => setTasks(t))
       .catch(() => setError("Backend unreachable. Please restart the FastAPI server."));
+    
+    const saved = localStorage.getItem("openenv_best_score");
+    if (saved) setBestScore(parseFloat(saved));
   }, []);
-
-  const selectedInfo = tasks.find((t) => t.task === selectedTask);
 
   const handleReset = () => {
     setStage("idle");
@@ -68,12 +74,19 @@ export default function Home() {
     setError(null);
   };
 
-  const handleLoad = async () => {
-    setStage("loaded");
-    setResult(null);
-    setAuditResult(null);
-    const data = await fetchOriginalData();
-    setOriginalData(data);
+  const handleTaskSelect = async (task: string) => {
+    handleReset();
+    setSelectedTask(task);
+  };
+
+  const handleInitChallenge = async (task: string) => {
+    try {
+        const data = await fetchOriginalData();
+        setOriginalData(data);
+        setStage("initialized");
+    } catch (e: any) {
+        setError(e.message);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,6 +111,10 @@ export default function Home() {
     try {
       const res = await reviewManualAudit(auditInput);
       setAuditResult(res);
+      if (res.score * 100 > bestScore) {
+          setBestScore(res.score * 100);
+          localStorage.setItem("openenv_best_score", (res.score * 100).toString());
+      }
     } catch (e: any) {
       setError("AI Review failed: " + e.message);
     } finally {
@@ -105,7 +122,7 @@ export default function Home() {
     }
   };
 
-  const handleRun = async () => {
+  const handleRunRefiner = async () => {
     setStage("cleaning");
     setError(null);
     try {
@@ -114,13 +131,12 @@ export default function Home() {
       setStage("completed");
     } catch (e: any) {
       setError(e.message);
-      setStage("initialized");
+      setStage("loaded");
     }
   };
 
   return (
     <main className="min-h-screen bg-black text-zinc-200">
-      {/* Top Bar */}
       <nav className="border-b border-zinc-900 px-6 py-4 bg-black/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -129,245 +145,238 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                Data Cleaning OpenEnv
-                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono uppercase tracking-widest">Interactive Audit</span>
+                DataClean.io
+                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono uppercase tracking-widest">v1.2</span>
               </h1>
-              <p className="text-xs text-zinc-500">Manual Identification & AI Correction Workflow</p>
+              <p className="text-xs text-zinc-500">The "LeetCode" for Data Engineers</p>
             </div>
           </div>
+          
+          <div className="bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 flex items-center gap-1">
+                <button 
+                    onClick={() => { setViewMode("challenges"); handleReset(); }}
+                    className={clsx(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                        viewMode === "challenges" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                >
+                    <Trophy className="w-3.5 h-3.5" /> Challenges
+                </button>
+                <button 
+                    onClick={() => { setViewMode("refiner"); handleReset(); }}
+                    className={clsx(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                        viewMode === "refiner" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                >
+                    <Sparkles className="w-3.5 h-3.5" /> Auto-Refiner
+                </button>
+          </div>
+
           <div className="flex items-center gap-4">
             <DiagnosticsBadge />
-            <div className="h-8 w-px bg-zinc-800 mx-1" />
-            <span className={clsx("px-3 py-1 text-xs font-semibold rounded-full border transition-all duration-500",
-              stage === "completed" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                stage === "cleaning" ? "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse" :
-                  "bg-zinc-900 text-zinc-500 border-zinc-800")}>
-              {stage.toUpperCase()}
-            </span>
           </div>
         </div>
       </nav>
 
       <div className="max-w-7xl mx-auto p-6 flex flex-col gap-6">
 
-        {/* Pipeline Stepper */}
-        <section className="bg-zinc-950/50 border border-zinc-900 rounded-2xl p-8 backdrop-blur-sm shadow-xl relative overflow-hidden">
-           <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent opacity-30" />
-           <PipelineStepper currentStage={stage} />
-        </section>
-
-        {/* Main Grid */}
-        <div className="grid grid-cols-12 gap-6">
-
-          {/* Left Sidebar — Controls & Audit */}
-          <aside className="col-span-12 lg:col-span-3 flex flex-col gap-4">
-            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-6 shadow-lg shadow-black/40">
-              <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold flex items-center gap-2">
-                <Zap className="w-3.5 h-3.5" /> Simulation Controls
-              </h2>
-
-              {/* Task Selector */}
-              <div>
-                <label className="text-[10px] uppercase font-bold text-zinc-600 mb-2 block">Dataset Task</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {["easy", "medium", "hard"].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => { setSelectedTask(t); handleReset(); }}
-                      className={clsx(
-                        "py-2.5 text-[11px] font-bold rounded-xl border transition-all capitalize",
-                        selectedTask === t
-                          ? "bg-zinc-100 text-black border-white"
-                          : "bg-transparent text-zinc-500 border-zinc-800 hover:border-zinc-700 hover:text-zinc-300"
-                      )}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Custom Upload */}
-              <div className="pt-2">
-                   <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full py-3 text-[11px] font-bold border border-zinc-800 bg-zinc-900/50 text-zinc-300 rounded-xl hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-2"
-                   >
-                     <Upload className="w-3.5 h-3.5" /> Upload Custom Data
-                   </button>
-                   <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    onChange={handleFileUpload} 
-                    accept=".csv,.json" 
-                    className="hidden" 
-                   />
-              </div>
-
-              <div className="h-[1px] bg-zinc-900 mx-2" />
-
-              {/* Primary Actions */}
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={handleLoad}
-                  disabled={stage === "cleaning" || stage !== "idle"}
-                  className="w-full py-3 text-xs font-bold bg-white text-black rounded-xl hover:bg-zinc-200 disabled:opacity-40 transition-all flex items-center justify-center gap-2 group"
-                >
-                  <Database className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" /> Initialize Dataset
-                </button>
-                <button
-                  onClick={handleRun}
-                  disabled={stage !== "loaded" && stage !== "completed" && stage !== "initialized"}
-                  className="w-full py-3 text-xs font-bold bg-emerald-600 text-white border border-emerald-500 hover:bg-emerald-500 disabled:opacity-40 transition-all shadow-lg shadow-emerald-900/10 flex items-center justify-center gap-2"
-                >
-                  {stage === "cleaning" ? <Activity className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {stage === "cleaning" ? "Running Baseline..." : "Trigger Baseline Run"}
-                </button>
-                <button
-                  onClick={handleReset}
-                  className="w-full py-2.5 text-[10px] font-bold text-zinc-600 hover:text-red-400 transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <RotateCcw className="w-3 h-3" /> Clear Session
-                </button>
-              </div>
-            </div>
-
-            {/* Manual Audit Section */}
-            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-4 shadow-lg shadow-black/40">
-                <div className="flex items-center justify-between">
-                    <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold flex items-center gap-2">
-                        <Search className="w-3.5 h-3.5" /> User Manual Audit
-                    </h2>
-                    <div className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 text-[9px] font-black rounded border border-indigo-500/20">NEW</div>
-                </div>
-                
-                <p className="text-[10px] text-zinc-600 italic">"Manually describe what issues you found. The AI will review your accuracy."</p>
-
-                <textarea 
-                    value={auditInput}
-                    onChange={(e) => setAuditInput(e.target.value)}
-                    placeholder="e.g. Row 2 has a typo in email, Row 5 age is missing..."
-                    className="w-full h-24 bg-black border border-zinc-900 rounded-xl p-3 text-[11px] text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-zinc-700 transition-colors resize-none"
-                    disabled={stage === "idle" || stage === "cleaning"}
-                />
-
-                <button 
-                    onClick={handleRequestReview}
-                    disabled={!auditInput.trim() || isAuditing}
-                    className="w-full py-2.5 text-[10px] font-black uppercase tracking-widest bg-zinc-100 text-black rounded-lg hover:bg-white disabled:opacity-30 transition-all flex items-center justify-center gap-2"
-                >
-                    {isAuditing ? <Activity className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
-                    {isAuditing ? "Analyzing..." : "Request AI Review"}
-                </button>
-
-                {auditResult && (
-                    <div className={clsx(
-                        "mt-2 p-3 rounded-xl border flex flex-col gap-1 transition-all animate-in fade-in slide-in-from-top-2",
-                        auditResult.score > 0.7 ? "bg-emerald-500/10 border-emerald-500/20" : "bg-yellow-500/10 border-yellow-500/20"
-                    )}>
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-zinc-500">AI FEEDBACK</span>
-                            <span className={clsx("text-[10px] font-black", auditResult.score > 0.7 ? "text-emerald-400" : "text-yellow-400")}>
-                                SCORE: {(auditResult.score * 100).toFixed(0)}%
-                            </span>
-                        </div>
-                        <p className="text-[11px] text-zinc-300 leading-tight">"{auditResult.critique}"</p>
+        {viewMode === "challenges" && (
+            <div className="grid grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="col-span-12 flex items-center justify-between bg-zinc-950/40 border border-zinc-900 rounded-2xl p-6 backdrop-blur-sm">
+                    <div>
+                        <h2 className="text-2xl font-bold text-white mb-1">Pick a Challenge</h2>
+                        <p className="text-xs text-zinc-500">Select a dataset and manually identify the missing or dirty values.</p>
                     </div>
-                )}
-            </div>
-          </aside>
-
-          {/* Main Workspace */}
-          <div className="col-span-12 lg:col-span-9 flex flex-col gap-6">
-
-            {/* Metrics Dashboard */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { label: "Audit Accuracy", value: auditResult ? (auditResult.score * 100).toFixed(0) + "%" : "--", icon: Brain, color: "text-zinc-400" },
-                { label: "Cleanliness (Baseline)", value: result ? (result.score * 100).toFixed(0) + "%" : "--", icon: BarChart3, color: "text-zinc-400" },
-                { label: "Issues Remaining", value: result ? result.final_issues.length : originalData.length > 0 ? "Analyzing..." : "--", icon: AlertTriangle, color: result?.final_issues.length === 0 ? "text-emerald-500" : "text-yellow-500" },
-              ].map((m) => (
-                <div key={m.label} className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-2 relative overflow-hidden group hover:border-zinc-700 transition-colors shadow-lg">
-                  <m.icon className="absolute top-4 right-4 w-10 h-10 text-zinc-900/50 group-hover:text-zinc-800 transition-colors" />
-                  <div className="text-[10px] uppercase tracking-[0.15em] text-zinc-600 font-bold">{m.label}</div>
-                  <div className={clsx("text-4xl font-bold tracking-tight", m.color)}>{m.value}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Data Comparison Views */}
-            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl relative">
-              <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-indigo-500 to-transparent opacity-20" />
-              <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-6 flex items-center gap-2">
-                <Database className="w-3.5 h-3.5" /> Interactive Comparison Workspace
-              </h2>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-                <DataTable label="RAW ORIGINAL INPUT" data={originalData} variant="before" />
-                <DataTable label="AI BASELINE OUTPUT" data={result?.final_data ?? []} variant="after" />
-              </div>
-            </div>
-
-            {/* Log & Charts */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6">
-                <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-6 flex items-center gap-2 text-indigo-400">
-                  <Activity className="w-3.5 h-3.5" /> Correction Reward Curve
-                </h2>
-                <div className="h-[240px] w-full">
-                  <RewardChart rewards={result?.rewards ?? []} />
-                </div>
-              </div>
-
-              <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6">
-                <h2 className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-6 flex items-center gap-2 text-emerald-400">
-                  <Zap className="w-3.5 h-3.5" /> Baseline Action Log
-                </h2>
-                {result ? (
-                  <div className="space-y-3 max-h-[220px] overflow-y-auto pr-3 custom-scrollbar">
-                    {result.steps_log.map((s: StepLog) => (
-                      <div key={s.step} className="flex items-center gap-4 text-xs bg-black/40 border border-zinc-900 rounded-xl p-3.5 hover:border-zinc-700 transition-all">
-                        <div className={clsx(
-                          "w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0",
-                          s.reward > 0 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20",
-                        )}>
-                          #{s.step}
+                    <div className="flex items-center gap-10">
+                        <div className="text-center">
+                            <div className="text-[10px] uppercase font-bold text-zinc-600 mb-1">Current Task</div>
+                            <div className="text-sm font-black text-indigo-400 uppercase tracking-widest">{selectedTask}</div>
                         </div>
-                        <div className="flex-1">
-                          <div className="text-zinc-100 font-bold uppercase tracking-wide">{s.action.replace(/_/g, " ")}</div>
-                          <div className="text-[10px] text-zinc-600 mt-0.5">{s.issues_remaining} issues remaining after op</div>
+                        <div className="text-center">
+                            <div className="text-[10px] uppercase font-bold text-zinc-600 mb-1">Your All-Time Best</div>
+                            <div className="text-sm font-black text-emerald-400">{bestScore.toFixed(0)}%</div>
                         </div>
-                        <div className={clsx(
-                          "font-mono font-black text-[11px]",
-                          s.reward > 0 ? "text-emerald-400" : "text-red-400",
-                        )}>
-                          {s.reward > 0 ? "+" : ""}{s.reward.toFixed(1)}pts
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-[200px] text-zinc-700 border border-dashed border-zinc-900 rounded-xl">
-                    <Database className="w-6 h-6 mb-2 opacity-20" />
-                    <span className="text-[11px] font-medium italic">Waiting for baseline results...</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-5 flex items-center gap-4 shadow-lg animate-in zoom-in-95 duration-300">
-                <div className="w-10 h-10 bg-red-500/10 rounded-xl flex items-center justify-center shrink-0">
-                  <XCircle className="w-5 h-5 text-red-500" />
+                    </div>
                 </div>
+
+                <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
+                    {["easy", "medium", "hard"].map((level) => {
+                        const info = tasks.find(t => t.task === level);
+                        const isSelected = selectedTask === level;
+                        return (
+                            <button 
+                                key={level}
+                                onClick={() => handleTaskSelect(level)}
+                                className={clsx(
+                                    "text-left p-6 rounded-2xl border transition-all relative overflow-hidden group",
+                                    isSelected 
+                                        ? "bg-zinc-900 border-indigo-500/50 shadow-lg shadow-indigo-500/5" 
+                                        : "bg-zinc-950 border-zinc-900 hover:border-zinc-700"
+                                )}
+                            >
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="font-bold text-white uppercase tracking-[0.2em] text-[11px]">{level}</h3>
+                                    <div className={clsx(
+                                        "px-2 py-0.5 rounded text-[10px] font-black uppercase",
+                                        level === "easy" ? "bg-emerald-500/10 text-emerald-500" :
+                                        level === "medium" ? "bg-yellow-500/10 text-yellow-500" :
+                                        "bg-red-500/10 text-red-500"
+                                    )}>
+                                        {level === "easy" ? "Beginner" : level === "medium" ? "Intermediate" : "Advanced"}
+                                    </div>
+                                </div>
+                                <p className="text-xs text-zinc-500 leading-relaxed italic mb-4 line-clamp-2">"{info?.description || 'Loading...'}"</p>
+                                <div className="flex items-center gap-4 text-[10px] font-bold text-zinc-400">
+                                    <span className="flex items-center gap-1"><Database className="w-3 h-3" /> {info?.row_count ?? 0} Rows</span>
+                                    <span className="flex items-center gap-1 text-indigo-400"><AlertTriangle className="w-3 h-3" /> {info?.issue_count ?? 0} Issues</span>
+                                </div>
+                                
+                                {isSelected && (
+                                    <div className="absolute right-4 bottom-4">
+                                        <ArrowRight className="w-5 h-5 text-indigo-500 animate-pulse" />
+                                    </div>
+                                )}
+                            </button>
+                        );
+                    })}
+
+                    <button 
+                        onClick={() => handleInitChallenge(selectedTask)}
+                        disabled={stage !== "idle" && stage !== "completed"}
+                        className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-500 disabled:opacity-40 transition-all shadow-xl shadow-indigo-900/10 flex items-center justify-center gap-2"
+                    >
+                         <Database className="w-4 h-4" /> Initialize Challenge
+                    </button>
+                </div>
+
+                <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
+                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+                                <Search className="w-4 h-4 text-indigo-400" /> Manual Identification Audit
+                            </h2>
+                            {stage === "initialized" && <span className="text-[10px] font-black text-emerald-400 animate-pulse flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> READY FOR AUDIT</span>}
+                        </div>
+                        
+                        <textarea 
+                            value={auditInput}
+                            onChange={(e) => setAuditInput(e.target.value)}
+                            disabled={stage !== "initialized"}
+                            placeholder="Identify specific missing ages, malformed emails, or duplicates here..."
+                            className="w-full h-32 bg-black border border-zinc-900 rounded-xl p-4 text-[13px] text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-indigo-500/50 transition-colors resize-none disabled:opacity-20"
+                        />
+
+                        <button 
+                            onClick={handleRequestReview}
+                            disabled={!auditInput.trim() || isAuditing || stage !== "initialized"}
+                            className="w-full py-3 bg-zinc-100 text-black rounded-xl font-black uppercase text-xs tracking-widest hover:bg-white disabled:opacity-30 transition-all flex items-center justify-center gap-2"
+                        >
+                            {isAuditing ? <Activity className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+                            {isAuditing ? "Reviewing..." : "Submit Audit For Scoring"}
+                        </button>
+
+                        {auditResult && (
+                            <div className={clsx(
+                                "p-5 rounded-2xl border flex items-start gap-4 transition-all animate-in zoom-in-95",
+                                auditResult.score > 0.7 ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
+                            )}>
+                                <div className={clsx(
+                                    "w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-lg",
+                                    auditResult.score > 0.7 ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
+                                )}>
+                                    <h4 className="text-lg font-black italic">{(auditResult.score * 100).toFixed(0)}</h4>
+                                </div>
+                                <div className="pt-1">
+                                    <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">AI Review Critique</div>
+                                    <p className="text-[13px] text-zinc-200 leading-snug">"{auditResult.critique}"</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-inner min-h-[400px]">
+                        <DataTable label={`PREVIEW: ${selectedTask.toUpperCase()}`} data={originalData} variant="before" />
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {viewMode === "refiner" && (
+            <div className="grid grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="col-span-12 flex items-center justify-between bg-zinc-950/40 border border-zinc-900 rounded-2xl p-6 backdrop-blur-sm">
+                    <div>
+                        <h2 className="text-2xl font-bold text-white mb-1">Automated Data Refiner</h2>
+                        <p className="text-xs text-zinc-500">Upload your own dataset for deep cleaning with Gemini Baseline.</p>
+                    </div>
+                </div>
+
+                <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
+                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-8 flex flex-col items-center gap-6 text-center border-dashed group hover:border-indigo-500/50 transition-colors">
+                        <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center text-zinc-500 group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-xl shadow-black/40">
+                            <Upload className="w-7 h-7" />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-zinc-200 mb-2">Drop your CSV / JSON</h3>
+                            <p className="text-[11px] text-zinc-600">The Gemini engine will automatically detect and fix outliers, duplicates, and missing values.</p>
+                        </div>
+                        <button 
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-6 py-2.5 bg-zinc-100 text-black rounded-lg text-xs font-black uppercase hover:bg-white transition-all"
+                        >
+                            Select File
+                        </button>
+                        <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".csv,.json" className="hidden" />
+                    </div>
+
+                    <button 
+                        onClick={handleRunRefiner}
+                        disabled={stage !== "loaded" && stage !== "completed"}
+                        className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-500 disabled:opacity-40 transition-all flex items-center justify-center gap-2 shadow-xl shadow-emerald-900/10"
+                    >
+                        {stage === "cleaning" ? <Activity className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                        {stage === "cleaning" ? "Refining Dataset..." : "Trigger Full Auto-Refine"}
+                    </button>
+
+                    {result && (
+                        <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-4 shadow-xl">
+                            <h3 className="text-[10px] font-black uppercase text-zinc-600 flex items-center gap-2"><BarChart3 className="w-4 h-4"/> Refinement Metrics</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
+                                    <div className="text-[10px] text-zinc-500 uppercase mb-1">Quality Lift</div>
+                                    <div className="text-2xl font-black text-emerald-400">{(result.score * 100).toFixed(0)}%</div>
+                                </div>
+                                <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
+                                    <div className="text-[10px] text-zinc-500 uppercase mb-1">Issues fixed</div>
+                                    <div className="text-2xl font-black text-indigo-400">{result.actions.length}</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="col-span-12 lg:col-span-8 bg-zinc-950 border border-zinc-900 rounded-2xl p-8 flex flex-col gap-8 shadow-inner">
+                    <DataTable label="SOURCE (RAW)" data={originalData} variant="before" />
+                    <div className="flex justify-center -my-4 relative z-10">
+                        <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center shadow-lg">
+                            <ArrowRight className="w-5 h-5 text-indigo-500 rotate-90 lg:rotate-0" />
+                        </div>
+                    </div>
+                    <DataTable label="AI REFINED (OUTPUT)" data={result?.final_data ?? []} variant="after" />
+                </div>
+            </div>
+        )}
+
+        {error && (
+            <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-5 flex items-center gap-4 shadow-lg animate-in shake duration-500 fixed bottom-6 right-6 max-w-md z-50 backdrop-blur-xl">
+                <XCircle className="w-8 h-8 text-red-500 shrink-0" />
                 <div>
-                  <div className="text-xs font-bold text-red-500 uppercase tracking-widest mb-1">System Error</div>
-                  <div className="text-sm text-zinc-400">{error}</div>
+                    <div className="text-xs font-bold text-red-500 uppercase tracking-widest mb-1">Platform Error</div>
+                    <div className="text-[11px] text-zinc-400">{error}</div>
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
+                <button onClick={() => setError(null)} className="ml-auto p-1 text-zinc-500 hover:text-white"><XCircle className="w-4 h-4"/></button>
+            </div>
+        )}
       </div>
     </main>
   );
@@ -387,82 +396,78 @@ function DiagnosticsBadge() {
   }, []);
 
   if (!data) return (
-    <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500 text-[10px] font-bold">
-      <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-      NODE: OFFLINE
+    <div className="flex items-center gap-2 pl-3 py-1 pr-1 bg-red-500/10 border border-red-500/20 rounded-full text-red-400 text-[10px] font-bold">
+      OFFLINE
+      <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center"><XCircle className="w-3 h-3 text-white"/></div>
     </div>
   );
 
   const keyIsOk = data.gemini_api_key === "Set";
 
   return (
-    <div className="flex items-center gap-2">
-      <div className={clsx(
-        "flex items-center gap-2 px-3 py-1.5 border rounded-lg text-[10px] font-bold transition-all",
-        keyIsOk ? "bg-emerald-500/5 text-emerald-500 border-emerald-500/20" : "bg-yellow-500/5 text-yellow-500 border-yellow-500/20"
+    <div className={clsx(
+        "flex items-center gap-2 px-3 py-1.5 rounded-full border text-[10px] font-bold transition-all",
+        keyIsOk ? "bg-emerald-500/5 text-emerald-400 border-emerald-500/20" : "bg-yellow-500/5 text-yellow-400 border-yellow-500/20"
       )}>
-        <Brain className="w-3 h-3" />
-        AI ADAPTER: {keyIsOk ? "ONLINE" : "MISSING KEY"}
-      </div>
+        <Brain className={clsx("w-3.5 h-3.5", keyIsOk ? "text-emerald-400" : "text-yellow-400")} />
+        AI ADAPTER: {keyIsOk ? "READY" : "NO KEY"}
     </div>
   );
 }
 
-/* ------- Sub-component: Data Table ------- */
 function DataTable({ label, data, variant }: { label: string; data: Record<string, any>[]; variant: "before" | "after" }) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex-1 opacity-40 grayscale">
-        <div className="text-[10px] uppercase font-bold text-zinc-600 mb-3 tracking-widest">{label}</div>
-        <div className="flex flex-col items-center justify-center p-8 border border-dashed border-zinc-900 rounded-2xl h-[300px]">
-          <Database className="w-8 h-8 mb-2 text-zinc-800" />
-          <div className="text-[11px] font-bold text-zinc-800">NO DATA STREAM</div>
+      <div className="flex-1 opacity-20 transition-opacity">
+        <label className="text-[10px] uppercase font-bold text-zinc-600 mb-3 block tracking-widest">{label}</label>
+        <div className="flex flex-col items-center justify-center p-8 border border-dashed border-zinc-900 rounded-3xl h-[150px]">
+          <Database className="w-6 h-6 mb-2 text-zinc-800" />
+          <div className="text-[10px] font-bold text-zinc-800 uppercase tracking-tighter">Empty Stream</div>
         </div>
       </div>
     );
   }
   return (
-    <div className="flex-1">
-      <div className="flex items-center justify-between mb-3 px-1">
-        <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest flex items-center gap-2">
-          {variant === "after" ? <Sparkles className="w-3 h-3 text-indigo-400" /> : <Database className="w-3 h-3 text-zinc-600" />}
+    <div className="flex-1 animate-in fade-in zoom-in-95 duration-700">
+      <div className="flex items-center justify-between mb-4 px-1">
+        <label className="text-[10px] uppercase font-black text-zinc-500 tracking-widest flex items-center gap-2">
+          {variant === "after" ? <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> : <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />}
           {label}
         </label>
-        <span className="text-[10px] font-mono text-zinc-600">{data.length} records</span>
+        <span className="text-[10px] font-mono text-zinc-700">{data.length} records detected</span>
       </div>
       <div className={clsx(
-          "overflow-hidden border rounded-2xl bg-zinc-950/80 shadow-2xl transition-all duration-500",
-          variant === "after" ? "border-indigo-500/20" : "border-zinc-900"
+          "overflow-hidden border rounded-3xl bg-black shadow-2xl transition-all duration-700",
+          variant === "after" ? "border-emerald-500/20 shadow-emerald-500/5" : "border-zinc-900"
       )}>
-        <div className="overflow-x-auto max-h-[300px] custom-scrollbar">
+        <div className="overflow-x-auto max-h-[240px] custom-scrollbar overflow-y-auto">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-zinc-900/40 text-[10px] uppercase text-zinc-500 font-bold tracking-widest sticky top-0 backdrop-blur-md z-10">
+            <thead className="bg-zinc-900/10 text-[10px] uppercase text-zinc-600 font-black tracking-[0.2em] sticky top-0 backdrop-blur-md z-10 border-b border-zinc-900/30">
               <tr>
-                <th className="px-4 py-3 border-b border-zinc-900/50">Name</th>
-                <th className="px-4 py-3 border-b border-zinc-900/50">Age</th>
-                <th className="px-4 py-3 border-b border-zinc-900/50">Email Reference</th>
+                <th className="px-6 py-4">Participant Name</th>
+                <th className="px-6 py-4">Reported Age</th>
+                <th className="px-6 py-4">Validated Email</th>
               </tr>
             </thead>
-            <tbody className="text-[11px] text-zinc-400">
+            <tbody className="text-[12px] text-zinc-400">
               {data.map((row, i) => {
-                const isDirty = row.age === null || row.age === "" || typeof row.age === "string";
                 return (
-                  <tr key={i} className="group hover:bg-zinc-900/30 transition-all border-b border-zinc-900/30">
-                    <td className="px-4 py-2.5 text-zinc-300 font-medium">{row.name || <span className="opacity-20 italic">null</span>}</td>
-                    <td className="px-4 py-2.5">
+                  <tr key={i} className="group hover:bg-zinc-900/30 transition-all border-b border-zinc-900/10">
+                    <td className="px-6 py-3.5 text-zinc-100 font-medium">{row.name || <span className="opacity-20 flex items-center gap-1">---</span>}</td>
+                    <td className="px-6 py-3.5">
                       {row.age === null || row.age === "" ? (
-                        <span className="text-red-500/60 font-black italic underline decoration-red-500/20 underline-offset-4">MISSING</span>
+                        <span className="text-red-500 px-2 py-0.5 bg-red-400/5 rounded border border-red-500/20 font-black text-[10px]">MISSING</span>
                       ) : (
                         <span className={clsx(
-                            "px-2 py-0.5 rounded",
-                            typeof row.age === "string" ? "text-yellow-400/80 bg-yellow-400/5 border border-yellow-400/10 italic" : "text-emerald-400/80 bg-emerald-400/5 border border-emerald-500/10"
+                            "px-2.5 py-1 rounded-lg font-mono text-[11px]",
+                            typeof row.age === "string" ? "text-yellow-400 bg-yellow-400/10 border border-yellow-400/20" : "text-emerald-400 bg-emerald-400/10 border border-emerald-500/20"
                         )}>
                           {row.age}
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 truncate max-w-[180px] font-mono opacity-80 group-hover:opacity-100 transition-opacity">
-                      {row.email || <span className="opacity-20 italic">no-mail</span>}
+                    <td className="px-6 py-3.5 truncate max-w-[200px] opacity-70 group-hover:opacity-100 transition-opacity font-mono">
+                      {row.email || <span className="opacity-10 italic">null</span>}
                     </td>
                   </tr>
                 );
