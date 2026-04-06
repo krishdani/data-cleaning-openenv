@@ -105,6 +105,10 @@ def gemini_call(prompt: str, max_tokens: int = 200) -> str:
         base_url = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
         model = os.getenv("MODEL_NAME", "gemini-1.5-flash")
         
+        # Google's OpenAI endpoint requires 'models/' prefix
+        if "generativelanguage" in base_url and not model.startswith("models/"):
+            model = f"models/{model}"
+        
         if not api_key or "your-gemini" in api_key:
             return "error: missing key"
 
