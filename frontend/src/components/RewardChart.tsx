@@ -3,47 +3,49 @@
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, ReferenceLine, Area, AreaChart } from "recharts";
 
 interface RewardChartProps {
-  rewards: number[];
+  rewards?: number[];
+  data?: { name: string; points: number }[];
+  domain?: [number, number];
+  color?: string;
 }
 
-export function RewardChart({ rewards }: RewardChartProps) {
-  if (!rewards || rewards.length === 0) {
+export function RewardChart({ rewards, data: customData, domain, color = "#10b981" }: RewardChartProps) {
+  const chartData = customData || (rewards || []).map((r, i) => ({
+    name: `Step ${i + 1}`,
+    points: parseFloat(r.toFixed(2)),
+  }));
+
+  if (chartData.length === 0) {
     return (
       <div className="flex items-center justify-center h-52 text-sm border border-zinc-900 rounded-lg text-zinc-600">
-        Run the cleaning pipeline to see reward progression
+        Run analysis to see metric progression
       </div>
     );
   }
 
-  const data = rewards.map((r, i) => ({
-    step: `Step ${i + 1}`,
-    reward: parseFloat(r.toFixed(2)),
-  }));
-
   return (
-    <div className="w-full h-52">
+    <div className="w-full h-full min-h-[200px]">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data}>
+        <AreaChart data={chartData}>
           <defs>
-            <linearGradient id="rewardGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#10b981" stopOpacity={0.15} />
-              <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.15} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
             </linearGradient>
           </defs>
           <XAxis
-            dataKey="step"
+            dataKey="name"
             stroke="#333"
-            tick={{ fill: "#666", fontSize: 11 }}
+            tick={{ fill: "#666", fontSize: 9 }}
             tickLine={false}
             axisLine={{ stroke: "#222" }}
           />
           <YAxis
-            domain={[-1, 1]}
+            domain={domain || [-1, 1]}
             stroke="#333"
-            tick={{ fill: "#666", fontSize: 11 }}
+            tick={{ fill: "#666", fontSize: 9 }}
             tickLine={false}
             axisLine={{ stroke: "#222" }}
-            ticks={[-1, -0.5, 0, 0.5, 1]}
           />
           <ReferenceLine y={0} stroke="#333" strokeDasharray="3 3" />
           <Tooltip
@@ -58,12 +60,12 @@ export function RewardChart({ rewards }: RewardChartProps) {
           />
           <Area
             type="monotone"
-            dataKey="reward"
-            stroke="#10b981"
+            dataKey="points"
+            stroke={color}
             strokeWidth={2}
-            fill="url(#rewardGrad)"
-            dot={{ r: 4, fill: "#10b981", stroke: "#000", strokeWidth: 2 }}
-            activeDot={{ r: 6, fill: "#34d399", stroke: "#000" }}
+            fill="url(#chartGrad)"
+            dot={{ r: 3, fill: color, stroke: "#000", strokeWidth: 1 }}
+            activeDot={{ r: 5, fill: color, stroke: "#000" }}
           />
         </AreaChart>
       </ResponsiveContainer>

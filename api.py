@@ -26,6 +26,13 @@ from env.grader import calculate_quality_score
 # Load environment variables
 load_dotenv()
 
+def _is_int_like(value: Any) -> bool:
+    if isinstance(value, int):
+        return True
+    if isinstance(value, str) and value.isdigit():
+        return True
+    return False
+
 # ---------------------------------------------------------------------------
 # App Initialization
 # ---------------------------------------------------------------------------
@@ -294,11 +301,13 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     except (TypeError, ValueError):
         res["score"] = 0.0
 
+    # Ensure score is within [-1, 1] range as requested
+    res["score"] = max(-1.0, min(1.0, res["score"]))
+
     # Always add reward to the response
     res["reward"] = calculate_reward(res.get("score", 0.0))
     
     # Run a quick automated cleaning session to show the "After" state for this audit
-    # We use a temp env to not disrupt the current session's "reset" flow
     temp_env = DataCleaningEnv(task=_env.task, data=[dict(r) for r in original_data])
     priority = ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates", "drop_invalid"]
     for action_name in priority:
@@ -306,6 +315,20 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
         if temp_env.done: break
         
     res["final_data"] = [dict(r) for r in temp_env.state().data]
+
+    # Added stats for graphs
+    ages = [r.get("age") for r in original_data if _is_int_like(r.get("age"))]
+    res["stats"] = {
+        "age_dist": {str(a): ages.count(a) for a in set(ages) if a is not None},
+        "issue_types": {iss["type"]: 0 for iss in issues}
+    }
+    for iss in issues:
+        res["stats"]["issue_types"][iss["type"]] += 1
+
+    # Added data explanation from AI
+    explanation_prompt = f"Summarize this dataset and its core issues in 2-3 sentences. Data sample: {json.dumps(original_data[:3])}. Current Issues: {json.dumps([i['type'] for i in issues])}"
+    res["explanation"] = gemini_call(explanation_prompt, 100)
+
     return res
 
 @app.post("/reset")

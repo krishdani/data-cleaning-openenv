@@ -8,6 +8,8 @@ tasks:
   - easy
   - medium
   - hard
+  - sprint
+  - nightmare
 
 action_schema:
   type: object
@@ -88,6 +90,14 @@ task_descriptions:
     name: "Hard Data Cleaning"
     description: "Large noisy dataset with 7-10+ issues (duplicates, invalid formats, missing data). Comprehensive cleaning required."
     difficulty: "Advanced"
+  sprint:
+    name: "Sprint Data Cleaning"
+    description: "Time-pressure challenge with subtle typos and swapped fields. Spot the traps before they slip through!"
+    difficulty: "Pro"
+  nightmare:
+    name: "Nightmare Data Cleaning"
+    description: "Catastrophic corruptions: mass duplicates, scrambled emails, and null storms. Only elite auditors survive."
+    difficulty: "Ultimate"
 
 grading:
   metric: "Final Score"

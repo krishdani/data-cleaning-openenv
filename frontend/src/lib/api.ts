@@ -55,6 +55,11 @@ export interface AuditResult {
   critique: string;
   reward: AuditReward;
   final_data?: Record<string, any>[];
+  explanation?: string;
+  stats?: {
+    age_dist: Record<string, number>;
+    issue_types: Record<string, number>;
+  };
 }
 
 // -------------------------------------------------------------------
