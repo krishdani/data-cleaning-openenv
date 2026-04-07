@@ -68,17 +68,20 @@ export interface AuditResult {
 async function safeFetch(url: string, options?: RequestInit) {
   try {
     const res = await fetch(url, options);
+    const bodyText = await res.text();
+    
     if (!res.ok) {
-        let errStr = "Unknown error";
-        try {
-            const errJson = await res.json();
-            errStr = errJson.detail || JSON.stringify(errJson);
-        } catch {
-            errStr = await res.text() || `${res.status} ${res.statusText}`;
-        }
-        throw new Error(errStr);
+      let errStr = bodyText || `${res.status} ${res.statusText}`;
+      try {
+          const errJson = JSON.parse(bodyText);
+          errStr = errJson.detail || JSON.stringify(errJson);
+      } catch {
+          // Keep bodyText as is
+      }
+      throw new Error(errStr);
     }
-    return await res.json();
+    
+    return JSON.parse(bodyText);
   } catch (error: any) {
     console.error("API ERROR:", error.message);
     throw new Error(`Cloud Error: ${error.message}`);
