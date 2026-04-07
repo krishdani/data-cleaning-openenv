@@ -1,6 +1,5 @@
-// ✅ Use proper env variable (works on Hugging Face)
-export const API_BASE =
-  process.env.NEXT_PUBLIC_ENV_API_URL || "";
+// ✅ Relative paths are safer on Hugging Face Spaces iframes (same-origin policy)
+export const API_BASE = "";
 
 // -------------------------------------------------------------------
 // TYPES
@@ -69,21 +68,20 @@ export interface AuditResult {
 async function safeFetch(url: string, options?: RequestInit) {
   try {
     const res = await fetch(url, options);
-
     if (!res.ok) {
-      let err;
-      try {
-        err = await res.json();
-      } catch {
-        err = { detail: "Unknown error" };
-      }
-      throw new Error(err.detail || "API Error");
+        let errStr = "Unknown error";
+        try {
+            const errJson = await res.json();
+            errStr = errJson.detail || JSON.stringify(errJson);
+        } catch {
+            errStr = await res.text() || `${res.status} ${res.statusText}`;
+        }
+        throw new Error(errStr);
     }
-
-    return res.json();
+    return await res.json();
   } catch (error: any) {
     console.error("API ERROR:", error.message);
-    throw new Error(`Frontend cannot reach backend: ${error.message}`);
+    throw new Error(`Cloud Error: ${error.message}`);
   }
 }
 
