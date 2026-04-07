@@ -240,7 +240,7 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     
     prompt = f"""
 Audit the following dataset based on the user's manual report.
-Task: {state.task} - {TASKS.get(state.task, {}).get('name', 'Cleaning Task')}
+Task: {_env.task} - {TASKS.get(_env.task, {}).get('name', 'Cleaning Task')}
 
 Ground Truth Issues In Dataset:
 {json.dumps([dict(i) for i in issues])}
