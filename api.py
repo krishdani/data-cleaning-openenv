@@ -271,9 +271,9 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
                 json_str = repair_json(clean[start:])
             else:
                 json_str = clean[start:end+1]
-            return json.loads(json_str)
-            
-        return json.loads(clean)
+            res = json.loads(json_str)
+        else:
+            res = json.loads(clean)
     except Exception as e:
         # If it's an error from gemini_call, report it directly
         if raw_review.startswith("error:"):
@@ -285,7 +285,7 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
             except:
                 res = {"score": 0.0, "critique": f"AI Parsing Error: {str(e)} | Content: {raw_review[:40]}"}
     
-    # Add reward to the response
+    # Always add reward to the response
     res["reward"] = calculate_reward(res.get("score", 0.0))
     return res
 

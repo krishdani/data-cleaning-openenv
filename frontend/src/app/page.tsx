@@ -116,6 +116,17 @@ export default function Home() {
     setIsAuditing(true);
     try {
       const res = await reviewManualAudit(auditInput);
+      // Defensive: ensure reward field always exists
+      if (!res.reward) {
+        const s = res.score ?? 0;
+        res.reward = s >= 1.0
+          ? { tier: "Grand Slam", points: 1000, message: "🟡 GOLD MEDAL: Perfect Audit!" }
+          : s >= 0.8
+          ? { tier: "Expert", points: 500, message: "⚪ SILVER MEDAL: Excellent work." }
+          : s >= 0.5
+          ? { tier: "Contributor", points: 200, message: "🟤 BRONZE MEDAL: Good effort." }
+          : { tier: "Novice", points: 50, message: "🔵 NOVICE: Keep practicing!" };
+      }
       setAuditResult(res);
       if (res.score * 100 > bestScore) {
           setBestScore(res.score * 100);
