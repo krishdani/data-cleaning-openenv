@@ -234,6 +234,7 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     
     state = _env.state()
     issues = state.issues
+    original_data = [dict(r) for r in state.data]
     
     prompt = (
         "You must return ONLY valid JSON.\n"
@@ -252,6 +253,7 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     )
     raw_review = gemini_call(prompt, max_tokens=1000)
     
+    res = {}
     try:
         # Robust cleanup
         clean = raw_review.strip()
@@ -285,8 +287,25 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
             except:
                 res = {"score": 0.0, "critique": f"AI Parsing Error: {str(e)} | Content: {raw_review[:40]}"}
     
+    # Ensure score is numeric
+    try:
+        raw_score = res.get("score", 0.0)
+        res["score"] = float(raw_score)
+    except (TypeError, ValueError):
+        res["score"] = 0.0
+
     # Always add reward to the response
     res["reward"] = calculate_reward(res.get("score", 0.0))
+    
+    # Run a quick automated cleaning session to show the "After" state for this audit
+    # We use a temp env to not disrupt the current session's "reset" flow
+    temp_env = DataCleaningEnv(task=_env.task, data=[dict(r) for r in original_data])
+    priority = ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates", "drop_invalid"]
+    for action_name in priority:
+        temp_env.step(Action(action=action_name))
+        if temp_env.done: break
+        
+    res["final_data"] = [dict(r) for r in temp_env.state().data]
     return res
 
 @app.post("/reset")

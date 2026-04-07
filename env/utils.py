@@ -64,7 +64,41 @@ def generate_dirty_data(task: str) -> List[Dict[str, Any]]:
         rng.shuffle(data)
         return data
 
-    raise ValueError(f"Unknown task '{task}'. Choose easy, medium, or hard.")
+    if task == "sprint":
+        # Tricky edge cases: subtle typos, borderline values, swapped-looking data
+        data = [
+            {"name": "Liam O'Connor", "email": "liam.oconnor@mail.com", "age": 25},
+            {"name": "Priya Sharma", "email": "priya.sharma@company", "age": "31"},
+            {"name": "Tomáš Novák", "email": "tomas.novak@@mail.cz", "age": 29},
+            {"name": "Emily Zhang", "email": "emily zhang@gmail.com", "age": None},
+            {"name": "Ahmed Hassan", "email": "ahmed.hassan@domain.org", "age": "twenty-seven"},
+            {"name": "Sofia Rossi", "email": "sofia.rossi#outlook.com", "age": 33},
+            {"name": "Liam O'Connor", "email": "liam.oconnor@mail.com", "age": 25},  # duplicate
+        ]
+        rng.shuffle(data)
+        return data
+
+    if task == "nightmare":
+        # Catastrophic corruption: mass duplicates, nulls, wrong types, bad emails
+        data = [
+            {"name": "Alex Rivera", "email": "alex.rivera@corp.com", "age": 28},
+            {"name": "Alex Rivera", "email": "alex.rivera@corp.com", "age": 28},  # dup
+            {"name": "Alex Rivera", "email": "alex.rivera@corp.com", "age": 28},  # dup
+            {"name": "Morgan Lee", "email": "morgan.lee@", "age": None},
+            {"name": "Jordan Kim", "email": "jordan.kim@@test.com", "age": "forty"},
+            {"name": "Casey Brown", "email": "", "age": ""},
+            {"name": "Taylor Swift", "email": "taylor#swift.com", "age": "19"},
+            {"name": "Sam Wilson", "email": "sam wilson@mail.com", "age": None},
+            {"name": "", "email": "ghost@void.com", "age": 0},
+            {"name": "Dana White", "email": "dana.white@ufc", "age": "thirty-five"},
+            {"name": "Morgan Lee", "email": "morgan.lee@", "age": None},  # dup
+            {"name": "Robin Hood", "email": "robin.hood@sherwood.org", "age": -5},
+        ]
+        rng.shuffle(data)
+        return data
+
+    # Fallback for custom or unknown tasks
+    return data
 
 
 def detect_issues(data: List[Dict[str, Any]], noise_tolerance: float = 0.0) -> List[Dict[str, Any]]:

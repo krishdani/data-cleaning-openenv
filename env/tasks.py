@@ -13,6 +13,14 @@ TASKS: Dict[str, Dict[str, str]] = {
         "name": "hard",
         "description": "A noisy dataset with duplicates, invalid emails, wrong age types, and missing values. The agent should clean the dataset to a production-ready format.",
     },
+    "sprint": {
+        "name": "sprint",
+        "description": "A time-pressure challenge with subtle typos, swapped fields, and edge-case ages. Every detail matters — spot the traps before they slip through!",
+    },
+    "nightmare": {
+        "name": "nightmare",
+        "description": "A catastrophic dataset from a corrupted pipeline: mass duplicates, scrambled emails, null storms, and type chaos. Only elite auditors survive this one.",
+    },
 }
 
 

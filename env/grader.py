@@ -56,16 +56,9 @@ def grade_medium(data: List[Dict[str, Any]]) -> float:
 
 
 def grade_hard(data: List[Dict[str, Any]]) -> float:
-    """
-    Grade the hard task: comprehensive data cleaning.
-    Success: All issue types resolved or minimized.
-    """
     issues = detect_issues(data)
     issue_types = {issue["type"] for issue in issues}
-    
     score = 0.0
-    
-    # Hard task: complete cleanup
     if "missing_age" not in issue_types:
         score += 0.25
     if "invalid_email" not in issue_types:
@@ -74,27 +67,61 @@ def grade_hard(data: List[Dict[str, Any]]) -> float:
         score += 0.25
     if "duplicates" not in issue_types:
         score += 0.25
-    
+    return round(min(max(score, 0.0), 1.0), 2)
+
+
+def grade_sprint(data: List[Dict[str, Any]]) -> float:
+    """Grade sprint: tricky edge cases need perfect handling."""
+    issues = detect_issues(data)
+    issue_types = {issue["type"] for issue in issues}
+    score = 0.0
+    if "missing_age" not in issue_types:
+        score += 0.2
+    if "invalid_email" not in issue_types:
+        score += 0.25
+    if "wrong_type" not in issue_types:
+        score += 0.25
+    if "duplicates" not in issue_types:
+        score += 0.15
+    # Bonus for clean data overall
+    if len(issues) == 0:
+        score += 0.15
+    return round(min(max(score, 0.0), 1.0), 2)
+
+
+def grade_nightmare(data: List[Dict[str, Any]]) -> float:
+    """Grade nightmare: catastrophic corruption needs heroic cleanup."""
+    issues = detect_issues(data)
+    issue_types = {issue["type"] for issue in issues}
+    total_issues = len(issues)
+    score = 0.0
+    if "missing_age" not in issue_types:
+        score += 0.2
+    if "invalid_email" not in issue_types:
+        score += 0.2
+    if "wrong_type" not in issue_types:
+        score += 0.2
+    if "duplicates" not in issue_types:
+        score += 0.2
+    # Bonus for near-zero remaining issues
+    if total_issues <= 1:
+        score += 0.2
+    elif total_issues <= 3:
+        score += 0.1
     return round(min(max(score, 0.0), 1.0), 2)
 
 
 def grade(task: str, data: List[Dict[str, Any]]) -> float:
-    """
-    Main grading function: delegates to task-specific graders.
-    
-    Args:
-        task: Task name ("easy", "medium", "hard")
-        data: The cleaned dataset
-        
-    Returns:
-        Score in [0.0, 1.0]
-    """
     if task == "easy":
         return grade_easy(data)
     elif task == "medium":
         return grade_medium(data)
     elif task == "hard":
         return grade_hard(data)
+    elif task == "sprint":
+        return grade_sprint(data)
+    elif task == "nightmare":
+        return grade_nightmare(data)
     else:
         return 0.0
 

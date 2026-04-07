@@ -218,8 +218,8 @@ export default function Home() {
                 </div>
 
                 <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
-                    {["easy", "medium", "hard"].map((level) => {
-                        const info = tasks.find(t => t.task === level);
+                    {tasks.map((info) => {
+                        const level = info.task;
                         const isSelected = selectedTask === level;
                         return (
                             <button 
@@ -238,9 +238,11 @@ export default function Home() {
                                         "px-2 py-0.5 rounded text-[10px] font-black uppercase",
                                         level === "easy" ? "bg-emerald-500/10 text-emerald-500" :
                                         level === "medium" ? "bg-yellow-500/10 text-yellow-500" :
+                                        level === "hard" ? "bg-orange-500/10 text-orange-500" :
+                                        level === "sprint" ? "bg-indigo-500/10 text-indigo-500" :
                                         "bg-red-500/10 text-red-500"
                                     )}>
-                                        {level === "easy" ? "Beginner" : level === "medium" ? "Intermediate" : "Advanced"}
+                                        {level === "easy" ? "Beginner" : level === "medium" ? "Intermediate" : level === "hard" ? "Advanced" : level === "sprint" ? "Pro" : "Ultimate"}
                                     </div>
                                 </div>
                                 <p className="text-xs text-zinc-500 leading-relaxed italic mb-4 line-clamp-2">"{info?.description || 'Loading...'}"</p>
@@ -304,7 +306,7 @@ export default function Home() {
                                             "text-5xl font-black italic",
                                             auditResult.score > 0.7 ? "text-emerald-400" : "text-red-400"
                                         )}>
-                                            {(auditResult.score * 100).toFixed(0)}
+                                            {isNaN(auditResult.score) ? "0" : (auditResult.score * 100).toFixed(0)}
                                         </div>
                                         <div className="text-[10px] font-bold text-zinc-600">Normalization: [0, 1]</div>
                                     </div>
@@ -351,12 +353,38 @@ export default function Home() {
                                         <div className="flex flex-col items-end gap-2 pr-4">
                                             <div className="flex items-center gap-2 bg-zinc-800/50 px-4 py-2 rounded-xl border border-zinc-700">
                                                 <Coins className="w-4 h-4 text-amber-400" />
-                                                <span className="text-lg font-black text-white">+{auditResult.reward.points} <span className="text-[10px] text-zinc-500 ml-1 uppercase">DP</span></span>
+                                                <span className="text-lg font-black text-white">+{isNaN(auditResult.reward.points) ? 0 : auditResult.reward.points} <span className="text-[10px] text-zinc-500 ml-1 uppercase">DP</span></span>
                                             </div>
                                             <div className="text-[10px] font-bold text-indigo-400 animate-pulse uppercase tracking-widest">Rewards Unlocked!</div>
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Cleaned Result Display */}
+                                {auditResult.final_data && (
+                                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl flex flex-col gap-4 animate-in fade-in duration-700">
+                                        <div className="flex items-center justify-between">
+                                            <h2 className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 flex items-center gap-2">
+                                                <Sparkles className="w-4 h-4 text-emerald-400" /> Post-Audit Cleaned Dataset
+                                            </h2>
+                                            <div className="flex items-center gap-2">
+                                                <button 
+                                                    onClick={() => setAuditResult(null)}
+                                                    className="px-3 py-1 bg-zinc-900 text-zinc-400 text-[10px] font-bold rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-all"
+                                                >
+                                                    Revise Audit
+                                                </button>
+                                                <button 
+                                                    onClick={() => { handleReset(); handleTaskSelect(selectedTask); }}
+                                                    className="px-3 py-1 bg-zinc-100 text-black text-[10px] font-bold rounded-lg hover:bg-white transition-all"
+                                                >
+                                                    Clear All
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <DataTable label="VERIFIED OUTPUT" data={auditResult.final_data} variant="after" />
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -401,16 +429,35 @@ export default function Home() {
                     </button>
 
                     {result && (
-                        <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-4 shadow-xl">
-                            <h3 className="text-[10px] font-black uppercase text-zinc-600 flex items-center gap-2"><BarChart3 className="w-4 h-4"/> Refinement Metrics</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
-                                    <div className="text-[10px] text-zinc-500 uppercase mb-1">Quality Lift</div>
-                                    <div className="text-2xl font-black text-emerald-400">{(result.score * 100).toFixed(0)}%</div>
+                        <div className="flex flex-col gap-4 animate-in slide-in-from-top-4 duration-500">
+                            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-4 shadow-xl">
+                                <h3 className="text-[10px] font-black uppercase text-zinc-600 flex items-center gap-2"><BarChart3 className="w-4 h-4"/> Refinement Metrics</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
+                                        <div className="text-[10px] text-zinc-500 uppercase mb-1">Quality Lift</div>
+                                        <div className="text-2xl font-black text-emerald-400">{isNaN(result.score) ? 0 : (result.score * 100).toFixed(0)}%</div>
+                                    </div>
+                                    <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
+                                        <div className="text-[10px] text-zinc-500 uppercase mb-1">Issues fixed</div>
+                                        <div className="text-2xl font-black text-indigo-400">{result.actions.length}</div>
+                                    </div>
                                 </div>
-                                <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
-                                    <div className="text-[10px] text-zinc-500 uppercase mb-1">Issues fixed</div>
-                                    <div className="text-2xl font-black text-indigo-400">{result.actions.length}</div>
+                            </div>
+                            
+                            {/* Auto-Refiner Reward */}
+                            <div className="bg-gradient-to-r from-zinc-900 to-black border border-zinc-800 rounded-2xl p-6 flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center">
+                                        <Zap className="w-6 h-6 text-yellow-400" />
+                                    </div>
+                                    <div>
+                                        <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Automation Bonus</div>
+                                        <div className="text-lg font-bold text-white">Efficiency Points Earned</div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 bg-zinc-800/50 px-4 py-2 rounded-xl border border-zinc-700">
+                                    <Coins className="w-4 h-4 text-amber-400" />
+                                    <span className="text-lg font-black text-white">+{Math.floor((result.score || 0) * 200)} <span className="text-[10px] text-zinc-500 ml-1 uppercase">DP</span></span>
                                 </div>
                             </div>
                         </div>

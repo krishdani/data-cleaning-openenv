@@ -54,6 +54,7 @@ export interface AuditResult {
   score: number;
   critique: string;
   reward: AuditReward;
+  final_data?: Record<string, any>[];
 }
 
 // -------------------------------------------------------------------
