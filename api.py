@@ -129,11 +129,11 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         # Try Native Google SDK First (More reliable)
         genai.configure(api_key=api_key)
         model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
-        # Ensure we use model names that Gemini prefers (e.g. models/gemini-1.5-flash)
-        if not model_name.startswith("models/"):
-            model_name = f"models/{model_name}"
         
-        model = genai.GenerativeModel(model_name)
+        # Simple ID without prefix often works best in Native SDK depending on version
+        model_id = model_name.replace("models/", "")
+        model = genai.GenerativeModel(model_id)
+        
         # Disable all safety filters
         safety = [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -145,25 +145,34 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         resp = model.generate_content(prompt, generation_config={"max_output_tokens": max_tokens, "temperature": 0.2}, safety_settings=safety)
         if hasattr(resp, 'text') and resp.text:
             return resp.text.strip()
-        return f"error: Native: No text in response. Finish reason: {resp.candidates[0].finish_reason if resp.candidates else 'Unknown'}"
+        
+        # If text is blocked, try to get it from candidates
+        if resp.candidates:
+            cand = resp.candidates[0]
+            if hasattr(cand.content, 'parts') and cand.content.parts:
+                return cand.content.parts[0].text.strip()
+        
+        return "error: Native: No text generated"
     except Exception as native_e:
         # Fallback to OpenAI Client
         try:
             from openai import OpenAI
-            # Try v1 instead of v1beta for better stability if v1beta failed
-            base_url = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1/openai/")
-            client = OpenAI(api_key=api_key, base_url=base_url)
+            # Try both v1 and v1beta as fallback
+            client = OpenAI(
+                api_key=api_key, 
+                base_url=os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+            )
             model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
             model_id = model_name.split('/')[-1]
             
             response = client.chat.completions.create(
                 model=model_id,
-                messages=[{"role": "user", "content": f"Return ONLY raw JSON.\n\n{prompt}"}],
+                messages=[{"role": "user", "content": f"You are a grader. Respond ONLY with JSON.\n\n{prompt}"}],
                 max_tokens=max_tokens,
-                temperature=0.2
+                temperature=0.1
             )
             content = response.choices[0].message.content
-            return content.strip() if content else "error: empty response"
+            return content.strip() if content else "error: empty openai response"
         except Exception as openai_e:
             return f"error: Native: {str(native_e)} | OpenAI: {str(openai_e)}"
 
