@@ -3,6 +3,8 @@ import os
 import json
 import asyncio
 from typing import List, Optional
+from dotenv import load_dotenv
+load_dotenv()
 from openai import AsyncOpenAI
 from env import DataCleaningEnv, TASKS
 from env.schemas import Action as MyEnvV4Action
