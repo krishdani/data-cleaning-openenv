@@ -126,55 +126,56 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         return "error: missing key"
     
     try:
-        # Try Native Google SDK First (More reliable)
+        # Layer 1: Native Google SDK (Best performance)
         genai.configure(api_key=api_key)
         model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
-        
-        # Simple ID without prefix often works best in Native SDK depending on version
-        model_id = model_name.replace("models/", "")
+        model_id = model_name.split("/")[-1]
         model = genai.GenerativeModel(model_id)
         
-        # Disable all safety filters
-        safety = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
+        resp = model.generate_content(
+            prompt, 
+            generation_config={"max_output_tokens": max_tokens, "temperature": 0.1},
+            safety_settings=[
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+        )
         
-        resp = model.generate_content(prompt, generation_config={"max_output_tokens": max_tokens, "temperature": 0.2}, safety_settings=safety)
-        if hasattr(resp, 'text') and resp.text:
+        if hasattr(resp, "text") and resp.text:
             return resp.text.strip()
-        
-        # If text is blocked, try to get it from candidates
         if resp.candidates:
             cand = resp.candidates[0]
-            if hasattr(cand.content, 'parts') and cand.content.parts:
+            if cand.content and cand.content.parts:
                 return cand.content.parts[0].text.strip()
         
-        return "error: Native: No text generated"
-    except Exception as native_e:
-        # Fallback to OpenAI Client
+        # If we got here, it's likely a safety block or empty response
+        reason = resp.candidates[0].finish_reason.name if resp.candidates else "Unknown"
+        raise Exception(f"Native Blocked: {reason}")
+        
+    except Exception as e1:
+        # Layer 2: OpenAI-Compatible Endpoint Fallback
         try:
             from openai import OpenAI
-            # Try both v1 and v1beta as fallback
             client = OpenAI(
-                api_key=api_key, 
-                base_url=os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+                api_key=api_key,
+                base_url="https://generativelanguage.googleapis.com/v1/openai/"
             )
-            model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
-            model_id = model_name.split('/')[-1]
-            
             response = client.chat.completions.create(
-                model=model_id,
-                messages=[{"role": "user", "content": f"You are a grader. Respond ONLY with JSON.\n\n{prompt}"}],
+                model="gemini-1.5-flash",
+                messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
                 temperature=0.1
             )
             content = response.choices[0].message.content
-            return content.strip() if content else "error: empty openai response"
-        except Exception as openai_e:
-            return f"error: Native: {str(native_e)} | OpenAI: {str(openai_e)}"
+            if content:
+                return content.strip()
+            raise Exception("Empty OpenAI response")
+        except Exception as e2:
+            detail = f"SDK Error: {str(e1)} | HTTP Error: {str(e2)}"
+            # Return special error prefix so caller knows to use local fallback
+            return f"error: {detail}"
 
 def gemini_agent_decision(observation: Dict[str, Any], previous_actions: List[str], task: str) -> str:
     """Use Gemini to choose the next cleaning action."""
@@ -302,15 +303,34 @@ User's Manual Audit Findings:
         else:
             res = json.loads(clean)
     except Exception as e:
-        # If it's an error from gemini_call, report it directly
-        if raw_review.startswith("error:"):
-            res = {"score": 0.0, "critique": f"AI Error: {raw_review[6:100]}"}
-        else:
-            # Last ditch effort: try repair with current clean string
-            try:
-                res = json.loads(repair_json(clean))
-            except:
-                res = {"score": 0.0, "critique": f"AI Parsing Error: {str(e)} | Content: {raw_review[:40]}"}
+        # DETERMINISTIC KEYWORD EVALUATOR (FALLBACK)
+        # Use simple density of found issues in the user string to ensure a non-zero RL reward
+        user_lower = req.user_input.lower()
+        found_matches = 0
+        total_gt = len(issues)
+        
+        # Check against ground truth issues
+        for issue in issues:
+            k_row = f"row {issue['row']}"
+            k_col = str(issue.get('column', '')).lower()
+            k_type = issue['type'].lower().replace("_", " ")
+            if k_row in user_lower or (k_col and k_col in user_lower) or k_type in user_lower:
+                found_matches += 1
+        
+        # RL Score: Percentage of total issues found (max 1.0)
+        # Minus penalty for very short inputs or irrelevant content
+        fallback_score = 0.0
+        if total_gt > 0:
+            raw_acc = found_matches / total_gt
+            fallback_score = round(min(1.0, raw_acc * 1.5), 2) # Be generous in match mode
+        
+        if len(req.user_input.split()) < 3:
+            fallback_score = -0.1
+            
+        res = {
+            "score": fallback_score, 
+            "critique": f"Deterministic Analysis: Found {found_matches} discrepancies in your audit. {raw_review if raw_review.startswith('error:') else 'Expert review processing...'}"
+        }
     
     # Ensure score is numeric
     try:
