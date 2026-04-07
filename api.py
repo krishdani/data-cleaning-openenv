@@ -128,10 +128,12 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         # Try Native Google SDK First (More reliable)
         genai.configure(api_key=api_key)
         model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
-        model_id = model_name.replace("models/", "")
+        # Ensure we use model names that Gemini prefers (e.g. models/gemini-1.5-flash)
+        if not model_name.startswith("models/"):
+            model_name = f"models/{model_name}"
         
-        model = genai.GenerativeModel(model_id)
-        # Disable all safety filters to prevent truncation on participant names
+        model = genai.GenerativeModel(model_name)
+        # Disable all safety filters
         safety = [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -139,33 +141,22 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
         ]
         
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
-                temperature=0.2
-            ),
-            safety_settings=safety
-        )
-        return response.text.strip() if response.text else "error: empty response"
+        resp = model.generate_content(prompt, generation_config={"max_output_tokens": max_tokens, "temperature": 0.2}, safety_settings=safety)
+        if hasattr(resp, 'text') and resp.text:
+            return resp.text.strip()
+        return f"error: Native: No text in response. Finish reason: {resp.candidates[0].finish_reason if resp.candidates else 'Unknown'}"
     except Exception as native_e:
-        if "429" in str(native_e):
-            # Try a different model version (Flash-8B has a separate quota)
-            try:
-                model_8b = genai.GenerativeModel("gemini-1.5-flash-8b")
-                resp_8b = model_8b.generate_content(prompt, generation_config=genai.types.GenerationConfig(max_output_tokens=max_tokens, temperature=0.2))
-                return resp_8b.text.strip()
-            except:
-                return "error: API Rate Limit reached (Daily Quota likely exhausted). Please check AI Studio Console."
         # Fallback to OpenAI Client
         try:
             from openai import OpenAI
-            base_url = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
+            # Try v1 instead of v1beta for better stability if v1beta failed
+            base_url = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1/openai/")
             client = OpenAI(api_key=api_key, base_url=base_url)
             model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
+            model_id = model_name.split('/')[-1]
             
             response = client.chat.completions.create(
-                model=model_name,
+                model=model_id,
                 messages=[{"role": "user", "content": f"Return ONLY raw JSON.\n\n{prompt}"}],
                 max_tokens=max_tokens,
                 temperature=0.2
@@ -186,6 +177,10 @@ def gemini_agent_decision(observation: Dict[str, Any], previous_actions: List[st
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "environment": "OpenEnv Data Cleaning"}
 
 @app.get("/api/diagnostics")
 @app.get("/diagnostics")
@@ -243,21 +238,34 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     issues = state.issues
     original_data = [dict(r) for r in state.data]
     
-    prompt = (
-        "You must return ONLY valid JSON.\n"
-        "Format EXACTLY like this:\n"
-        "{\n"
-        "  \"score\": <number between -1 and 1>,\n"
-        "  \"critique\": \"<short explanation>\"\n"
-        "}\n"
-        "Rules:\n"
-        "- Do NOT add extra text\n"
-        "- Do NOT break JSON\n"
-        "- Always close brackets\n"
-        "- Always include both fields\n\n"
-        f"GROUND TRUTH: {json.dumps([dict(i) for i in issues])}\n"
-        f"USER AUDIT: '{req.user_input}'"
-    )
+    prompt = f"""
+Audit the following dataset based on the user's manual report.
+Task: {state.task} - {TASKS.get(state.task, {}).get('name', 'Cleaning Task')}
+
+Ground Truth Issues In Dataset:
+{json.dumps([dict(i) for i in issues])}
+
+User's Manual Audit Findings:
+"{req.user_input}"
+
+    Scoring Rubric (Strict JSON Response):
+    1. Identification Accuracy: Did they find the specific rows/fields with issues?
+    2. Reasoning: Does their explanation make sense for that data type?
+    3. FALSE ALARMS: Did they report something that is NOT an issue? If yes, use a NEGATIVE score.
+
+    Rules for score:
+    - Excellent: 0.7 to 1.0
+    - Mostly correct: 0.4 to 0.6
+    - Mixed/Vague: 0.1 to 0.3
+    - No findings or vague: 0.0
+    - WRONG / FALSE ALARMS: -0.1 to -1.0 (Critical Penalty)
+
+    Return a STRICT JSON object:
+    {{
+      "score": <float -1.0 to 1.0>,
+      "critique": "<short 1-2 sentence feedback analyzing their finding>"
+    }}
+    """
     raw_review = gemini_call(prompt, max_tokens=1000)
     
     res = {}
@@ -325,9 +333,13 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     for iss in issues:
         res["stats"]["issue_types"][iss["type"]] += 1
 
-    # Added data explanation from AI
+    # Added data explanation from AI with safety
     explanation_prompt = f"Summarize this dataset and its core issues in 2-3 sentences. Data sample: {json.dumps(original_data[:3])}. Current Issues: {json.dumps([i['type'] for i in issues])}"
-    res["explanation"] = gemini_call(explanation_prompt, 100)
+    explanation_res = gemini_call(explanation_prompt, 100)
+    if explanation_res.startswith("error:"):
+        res["explanation"] = "AI context unavailable (Rate limit or API issue). Your audit results are still available below."
+    else:
+        res["explanation"] = explanation_res
 
     return res
 

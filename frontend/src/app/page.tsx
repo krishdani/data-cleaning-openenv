@@ -157,40 +157,50 @@ export default function Home() {
       <nav className="border-b border-zinc-900 px-6 py-4 bg-black/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-white/5">
-              <Database className="w-5 h-5 text-black" />
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-900/20">
+              <Zap className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
                 DataClean.io
-                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono uppercase tracking-widest">v1.2</span>
+                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono uppercase tracking-widest italic">Interative Studio</span>
               </h1>
             </div>
           </div>
           
-          <div className="bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 flex items-center gap-1">
-                <button 
-                    onClick={() => { setViewMode("challenges"); handleReset(); }}
-                    className={clsx(
-                        "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
-                        viewMode === "challenges" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
-                    )}
-                >
-                    <Trophy className="w-3.5 h-3.5" /> Challenges
-                </button>
-                <button 
-                    onClick={() => { setViewMode("refiner"); handleReset(); }}
-                    className={clsx(
-                        "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
-                        viewMode === "refiner" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
-                    )}
-                >
-                    <Sparkles className="w-3.5 h-3.5" /> Auto-Refiner
-                </button>
-          </div>
+          <div className="flex items-center gap-6">
+            <div className="bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 flex items-center gap-1">
+                  <button 
+                      onClick={() => { setViewMode("challenges"); handleReset(); }}
+                      className={clsx(
+                          "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                          viewMode === "challenges" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                      )}
+                  >
+                      <Trophy className="w-3.5 h-3.5" /> Challenges
+                  </button>
+                  <button 
+                      onClick={() => { setViewMode("refiner"); handleReset(); }}
+                      className={clsx(
+                          "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                          viewMode === "refiner" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                      )}
+                  >
+                      <Sparkles className="w-3.5 h-3.5" /> Auto-Refiner
+                  </button>
+            </div>
 
-          <div className="flex items-center gap-4">
-            <DiagnosticsBadge />
+            <div className="h-6 w-px bg-zinc-800 mx-2" />
+            
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => { handleReset(); window.location.reload(); }}
+                className="flex items-center gap-2 px-3 py-1.5 border border-red-900/30 hover:border-red-600/50 hover:bg-red-950/20 rounded-lg text-[10px] font-black uppercase tracking-widest text-red-500 transition-all"
+              >
+                <RotateCcw className="w-3 h-3" /> Reset Studio
+              </button>
+              <DiagnosticsBadge />
+            </div>
           </div>
         </div>
       </nav>
@@ -303,11 +313,11 @@ export default function Home() {
                                         <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-2">SCORE</div>
                                         <div className={clsx(
                                             "text-5xl font-black italic",
-                                            auditResult.score > 0.7 ? "text-emerald-400" : "text-red-400"
+                                            auditResult.score > 0.3 ? "text-emerald-400" : auditResult.score < 0 ? "text-red-600" : "text-red-400"
                                         )}>
                                             {isNaN(auditResult.score) ? "0" : (auditResult.score * 100).toFixed(0)}
                                         </div>
-                                        <div className="text-[10px] font-bold text-zinc-600">Normalization: [0, 1]</div>
+                                        <div className="text-[10px] font-bold text-zinc-600">Normalization: [-1, 1]</div>
                                     </div>
 
                                     <div className="col-span-12 md:col-span-9 p-6 rounded-2xl border border-zinc-900 bg-zinc-950/50 backdrop-blur-sm flex flex-col gap-2">
