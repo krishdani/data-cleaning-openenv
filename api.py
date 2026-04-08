@@ -325,11 +325,29 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
 
     critique = f"Matched {matched:.1f}/{len(expected_issues)} issues ({score}%)."
 
+    # Gather Stats for Graphs
+    ages = [r.get("age") for r in original_data if _is_int_like(r.get("age"))]
+    stats = {
+        "age_dist": {str(a): ages.count(a) for a in set(ages) if a is not None},
+        "issue_types": {iss["type"]: 0 for iss in issues}
+    }
+    for iss in issues:
+        stats["issue_types"][iss["type"]] += 1
+
+    # Simulate cleaning to produce Verified Dataset
+    temp_env = DataCleaningEnv(task=_env.task, data=[dict(r) for r in original_data])
+    for action_name in ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates", "fill_missing"]:
+        temp_env.step(Action(action=action_name))
+        if temp_env.done: break
+
     return {
         "score": score,
         "reward": reward,
         "tier": tier,
-        "critique": critique
+        "critique": critique,
+        "stats": stats,
+        "final_data": [dict(r) for r in temp_env.state().data],
+        "explanation": "Expert review processed via RL-aligned semantic matching."
     }
 
 @app.post("/reset")

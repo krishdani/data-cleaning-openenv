@@ -119,27 +119,28 @@ export default function Home() {
       
       // Adapt the new RL-friendly backend response format (score 0-100, reward -1 to 1)
       const rawScore = res.score ?? 0;
-      const t = res.tier || "low";
+      const rawReward = typeof res.reward === 'number' ? res.reward : 0;
+      const t = (res as any).tier || "low";
       
       // Re-map the API tier onto our UI display objects so the UI doesn't crash
-      let uiReward = { tier: "Novice", points: 10, message: "Incorrect or weak detection" };
+      let uiReward = { tier: "Novice", points: rawReward, message: "Incorrect or weak detection" };
       if (t === "elite") {
-        uiReward = { tier: "Grand Slam", points: 100, message: "Perfect identification!" };
+        uiReward = { tier: "Grand Slam", points: rawReward, message: "Perfect identification!" };
       } else if (t === "pro") {
-        uiReward = { tier: "Expert", points: 80, message: "Strong detection!" };
+        uiReward = { tier: "Expert", points: rawReward, message: "Strong detection!" };
       } else if (t === "intermediate") {
-        uiReward = { tier: "Contributor", points: 50, message: "Good partial match" };
+        uiReward = { tier: "Contributor", points: rawReward, message: "Good partial match" };
       } else if (t === "basic") {
-        uiReward = { tier: "Novice", points: 25, message: "Some correct signals" };
+        uiReward = { tier: "Novice", points: rawReward, message: "Some correct signals" };
       }
       
       // Adjust structure for purely UI consumption
-      const finalResult = {
+      const finalResult: any = {
           score: rawScore / 100.0, // UI maps 0-1 scale visually
           critique: res.critique || "Matched issue patterns.",
           reward: uiReward,
-          stats: res.stats || null,
-          final_data: res.final_data || null,
+          stats: res.stats || undefined,
+          final_data: res.final_data || undefined,
           explanation: res.explanation || "Evaluation complete."
       };
       
@@ -417,7 +418,10 @@ export default function Home() {
                                         <div className="flex flex-col items-end gap-2 pr-4">
                                             <div className="flex items-center gap-2 bg-zinc-800/50 px-4 py-2 rounded-xl border border-zinc-700">
                                                 <Coins className="w-4 h-4 text-amber-400" />
-                                                <span className="text-lg font-black text-white">+{isNaN(auditResult.reward.points) ? 0 : auditResult.reward.points} <span className="text-[10px] text-zinc-500 ml-1 uppercase">DP</span></span>
+                                                <span className="text-lg font-black text-white">
+                                                    {isNaN(auditResult.reward.points) ? "0.00" : (auditResult.reward.points > 0 ? "+" : "") + Number(auditResult.reward.points).toFixed(2)} 
+                                                    <span className="text-[10px] text-zinc-500 ml-1 uppercase">ENV RWD</span>
+                                                </span>
                                             </div>
                                             <div className="text-[10px] font-bold text-indigo-400 animate-pulse uppercase tracking-widest">Rewards Unlocked!</div>
                                         </div>
