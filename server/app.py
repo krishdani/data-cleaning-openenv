@@ -466,3 +466,10 @@ if FRONTEND_BUILD.exists():
 else:
     @app.get("/")
     def index(): return {"message": "Server online. Frontend build not found at /frontend/out"}
+
+def main():
+    import uvicorn
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
+
+if __name__ == "__main__":
+    main()
