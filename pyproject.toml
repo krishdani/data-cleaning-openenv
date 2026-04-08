@@ -13,4 +13,10 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
+    "python-dotenv",
+    "google-generativeai",
+    "openai"
 ]
+
+[project.scripts]
+server = "server.app:app"
