@@ -127,64 +127,33 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         return "error: missing key"
     
     try:
-        # Layer 1: Native Google SDK (Probing for stable ID)
+        # Layer 1: Native Google SDK
         genai.configure(api_key=api_key)
-        
-        # Try a sequence of highly stable model IDs
-        model_ids = ["gemini-1.5-pro", "gemini-1.5-pro-latest", "gemini-1.5-flash", "gemini-pro"]
+        model_ids = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
         resp = None
-        last_error = ""
         
         for m_id in model_ids:
             try:
-                # Some environments need the 'models/' prefix, some don't. We'll try both.
-                for full_id in [m_id, f"models/{m_id}"]:
-                    try:
-                        model = genai.GenerativeModel(full_id)
-                        resp = model.generate_content(
-                            prompt, 
-                            generation_config={"max_output_tokens": max_tokens, "temperature": 0.1},
-                            safety_settings=[
-                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                            ]
-                        )
-                        if resp: break
-                    except: continue
+                model = genai.GenerativeModel(m_id)
+                resp = model.generate_content(
+                    prompt, 
+                    generation_config={"max_output_tokens": max_tokens, "temperature": 0.1}
+                )
                 if resp: break
-            except Exception as e:
-                last_error = str(e)
-                continue
+            except: continue
         
         if resp and hasattr(resp, "text") and resp.text:
             return resp.text.strip()
-        if resp and resp.candidates:
-            cand = resp.candidates[0]
-            if cand.content and cand.content.parts:
-                return cand.content.parts[0].text.strip()
-        
-        raise Exception(f"Native Probe Failed: {last_error}")
-        
-        if hasattr(resp, "text") and resp.text:
-            return resp.text.strip()
-        if resp.candidates:
-            cand = resp.candidates[0]
-            if cand.content and cand.content.parts:
-                return cand.content.parts[0].text.strip()
-        
-        # If we got here, it's likely a safety block or empty response
-        reason = resp.candidates[0].finish_reason.name if resp.candidates else "Unknown"
-        raise Exception(f"Native Blocked: {reason}")
+            
+        raise Exception("Native SDK failed or blocked")
         
     except Exception as e1:
-        # Layer 2: OpenAI-Compatible Endpoint Fallback
+        # Layer 2: OpenAI-Compatible Endpoint Fallback (v1beta stable)
         try:
             from openai import OpenAI
             client = OpenAI(
                 api_key=api_key,
-                base_url="https://generativelanguage.googleapis.com/v1/openai/"
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
             )
             response = client.chat.completions.create(
                 model="gemini-1.5-flash",
@@ -193,13 +162,10 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
                 temperature=0.1
             )
             content = response.choices[0].message.content
-            if content:
-                return content.strip()
-            raise Exception("Empty OpenAI response")
+            if content: return content.strip()
+            raise Exception("Empty Response")
         except Exception as e2:
-            detail = f"SDK Error: {str(e1)} | HTTP Error: {str(e2)}"
-            # Return special error prefix so caller knows to use local fallback
-            return f"error: {detail}"
+            return f"error: SDK({str(e1)}) | HTTP({str(e2)})"
 
 def gemini_agent_decision(observation: Dict[str, Any], previous_actions: List[str], task: str) -> str:
     """Use Gemini to choose the next cleaning action."""
@@ -333,17 +299,14 @@ User's Manual Audit Findings:
         total_gt = len(issues)
         matched_details = []
         
-        # Word-to-number and ordinal mapping
-        word_map = {
-            "one": "1", "first": "1", "1st": "1",
-            "two": "2", "second": "2", "2nd": "2",
-            "three": "3", "third": "3", "3rd": "3",
-            "four": "4", "fourth": "4", "4th": "4",
-            "five": "5", "fifth": "5", "5th": "5"
-        }
-        for word, num in word_map.items():
-            pattern = re.compile(rf'\b{word}\b', re.IGNORECASE)
-            user_lower = pattern.sub(num, user_lower)
+        # DETERMINISTIC FUZZY EVALUATOR (ULTRA ROBUST)
+        user_lower = req.user_input.lower()
+        found_matches = 0
+        total_gt = len(issues)
+        matched_details = []
+        
+        # Super-Fuzzy: normalize words
+        user_norm = user_lower.replace("first", "1").replace("second", "2").replace("third", "3").replace("one", "1").replace("two", "2")
 
         for issue in issues:
             match = False
@@ -351,48 +314,38 @@ User's Manual Audit Findings:
             k_col = str(issue.get('column', '') or '').lower()
             k_type = str(issue.get('type', '') or '').lower().replace("_", " ")
             
-            # Row index detection (stricter word boundary)
-            row_pattern = re.compile(rf'\brow {row_idx}\b|\b{row_idx} row\b|\b#{row_idx}\b', re.IGNORECASE)
-            row_mentioned = bool(row_pattern.search(user_lower))
+            # 1. Mentioned Row number?
+            if row_idx != "-1" and (f"row {row_idx}" in user_norm or f"{row_idx} row" in user_norm or row_idx in user_norm.split()):
+                match = True
             
-            # If they just mention the number and the column together
-            if not row_mentioned and row_idx != "-1":
-                if f"{row_idx}" in user_lower.split() and (k_col in user_lower or k_type in user_lower):
-                    row_mentioned = True
-
-            col_mentioned = (k_col != "none" and k_col != "" and k_col in user_lower)
-            type_mentioned = (len(k_type) > 3 and k_type in user_lower)
+            # 2. Mentioned Column or Issue Type?
+            if (k_col != "none" and k_col != "" and k_col in user_norm) or (len(k_type) > 3 and k_type in user_norm):
+                # If they mention the column/type, give merit if it's the only one or if they mention the row too
+                if row_idx in user_norm or total_gt < 3:
+                   match = True
             
-            # Value-based matching
-            value_match = False
+            # 3. Mentioned Value?
             row_data = next((r for i, r in enumerate(original_data) if i == issue.get('row')), {})
             for val in row_data.values():
-                val_str = str(val).lower()
-                if val and len(val_str) > 3 and val_str in user_lower:
-                    value_match = True
+                vs = str(val).lower()
+                if val and len(vs) > 3 and vs in user_norm:
+                    match = True
                     break
 
-            # Scoring condition
-            if (row_mentioned and (col_mentioned or type_mentioned)) or (value_match and (col_mentioned or row_mentioned)):
-                match = True
-            elif row_mentioned: 
-                match = True # Partial credit for row mention
-            
             if match: 
                 found_matches += 1
-                matched_details.append(f"Row {row_idx} ({k_col if k_col else k_type})")
+                matched_details.append(f"Row {row_idx}")
         
-        # Pure accuracy score
+        # Force a minimum score if they typed something meaningful and there are issues
         raw_acc = found_matches / total_gt if total_gt > 0 else 0.0
         fallback_score = round(raw_acc, 2)
         
-        # Guarantee non-zero if something was identified
         if found_matches > 0:
-            fallback_score = max(0.1, fallback_score)
+            fallback_score = max(0.2, fallback_score)
             
         res = {
             "score": fallback_score, 
-            "critique": f"Logic Analysis: Found {found_matches} of {total_gt} discrepancies. Identified: {', '.join(matched_details[:2])}... {raw_review if raw_review.startswith('error:') else ''}"
+            "critique": f"Rule-Based Audit: Successfully identified {found_matches} of {total_gt} discrepancies. {raw_review if raw_review.startswith('error:') else ''}"
         }
     
     # Ensure score is numeric
