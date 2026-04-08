@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, ConfigDict, AliasChoices
 from dotenv import load_dotenv
 import csv
 import io
+import re
 import google.generativeai as genai
 
 from env import DataCleaningEnv, TASKS, grade
@@ -129,24 +130,29 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         # Layer 1: Native Google SDK (Probing for stable ID)
         genai.configure(api_key=api_key)
         
-        # Try a sequence of common model IDs until one works
-        model_ids = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"]
+        # Try a sequence of highly stable model IDs
+        model_ids = ["gemini-1.5-pro", "gemini-1.5-pro-latest", "gemini-1.5-flash", "gemini-pro"]
         resp = None
         last_error = ""
         
         for m_id in model_ids:
             try:
-                model = genai.GenerativeModel(m_id)
-                resp = model.generate_content(
-                    prompt, 
-                    generation_config={"max_output_tokens": max_tokens, "temperature": 0.1},
-                    safety_settings=[
-                        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                    ]
-                )
+                # Some environments need the 'models/' prefix, some don't. We'll try both.
+                for full_id in [m_id, f"models/{m_id}"]:
+                    try:
+                        model = genai.GenerativeModel(full_id)
+                        resp = model.generate_content(
+                            prompt, 
+                            generation_config={"max_output_tokens": max_tokens, "temperature": 0.1},
+                            safety_settings=[
+                                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                            ]
+                        )
+                        if resp: break
+                    except: continue
                 if resp: break
             except Exception as e:
                 last_error = str(e)
@@ -327,48 +333,66 @@ User's Manual Audit Findings:
         total_gt = len(issues)
         matched_details = []
         
-        # Word-to-number mapping for natural language audits
-        word_map = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8"}
+        # Word-to-number and ordinal mapping
+        word_map = {
+            "one": "1", "first": "1", "1st": "1",
+            "two": "2", "second": "2", "2nd": "2",
+            "three": "3", "third": "3", "3rd": "3",
+            "four": "4", "fourth": "4", "4th": "4",
+            "five": "5", "fifth": "5", "5th": "5"
+        }
         for word, num in word_map.items():
-            if word in user_lower:
-                user_lower = user_lower.replace(word, num)
+            pattern = re.compile(rf'\b{word}\b', re.IGNORECASE)
+            user_lower = pattern.sub(num, user_lower)
 
         for issue in issues:
             match = False
             row_idx = str(issue.get('row', -1))
-            k_col = str(issue.get('column', '')).lower()
-            k_type = str(issue.get('type', '')).lower().replace("_", " ")
+            k_col = str(issue.get('column', '') or '').lower()
+            k_type = str(issue.get('type', '') or '').lower().replace("_", " ")
             
-            # Row index in input? (Check for digit specifically)
-            row_mentioned = (row_idx != "-1" and (f"row {row_idx}" in user_lower or f"{row_idx} row" in user_lower or row_idx in user_lower.split()))
+            # Row index detection (stricter word boundary)
+            row_pattern = re.compile(rf'\brow {row_idx}\b|\b{row_idx} row\b|\b#{row_idx}\b', re.IGNORECASE)
+            row_mentioned = bool(row_pattern.search(user_lower))
+            
+            # If they just mention the number and the column together
+            if not row_mentioned and row_idx != "-1":
+                if f"{row_idx}" in user_lower.split() and (k_col in user_lower or k_type in user_lower):
+                    row_mentioned = True
+
             col_mentioned = (k_col != "none" and k_col != "" and k_col in user_lower)
             type_mentioned = (len(k_type) > 3 and k_type in user_lower)
             
-            # Value search
+            # Value-based matching
             value_match = False
             row_data = next((r for i, r in enumerate(original_data) if i == issue.get('row')), {})
             for val in row_data.values():
-                if val and str(val).lower() in user_lower and len(str(val)) > 3:
+                val_str = str(val).lower()
+                if val and len(val_str) > 3 and val_str in user_lower:
                     value_match = True
                     break
 
-            if (row_mentioned and (col_mentioned or type_mentioned)) or (value_match and col_mentioned):
+            # Scoring condition
+            if (row_mentioned and (col_mentioned or type_mentioned)) or (value_match and (col_mentioned or row_mentioned)):
                 match = True
-            elif row_mentioned and not col_mentioned:
-                # Partial match if they just said "row 1"
-                match = True
+            elif row_mentioned: 
+                match = True # Partial credit for row mention
             
             if match: 
                 found_matches += 1
-                matched_details.append(f"Row {row_idx} ({k_col})")
+                matched_details.append(f"Row {row_idx} ({k_col if k_col else k_type})")
         
-        # Non-zero score if anything was found
+        # Pure accuracy score
         raw_acc = found_matches / total_gt if total_gt > 0 else 0.0
         fallback_score = round(raw_acc, 2)
         
+        # Guarantee non-zero if something was identified
+        if found_matches > 0:
+            fallback_score = max(0.1, fallback_score)
+            
         res = {
             "score": fallback_score, 
-            "critique": f"Logic Analysis: Found {found_matches} discrepancies. Identified: {', '.join(matched_details[:2])}... {raw_review if raw_review.startswith('error:') else ''}"
+            "critique": f"Logic Analysis: Found {found_matches} of {total_gt} discrepancies. Identified: {', '.join(matched_details[:2])}... {raw_review if raw_review.startswith('error:') else ''}"
         }
     
     # Ensure score is numeric
