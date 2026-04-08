@@ -290,41 +290,25 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
         return score, matched_score
 
     def get_reward(score):
+        # Convert score (0–100) → reward (-1 to 1)
+        reward = (score / 50) - 1
+
+        # Clamp safely
+        reward = max(-1.0, min(1.0, reward))
+
+        return round(reward, 3)
+
+    def get_tier(score):
         if score >= 90:
-            return {
-                "tier": "Grand Slam", # Preserved elite UI styling
-                "points": 100,
-                "badge": "🏆 Elite Cleaner",
-                "message": "Perfect identification!"
-            }
+            return "elite"
         elif score >= 75:
-            return {
-                "tier": "Expert", # Preserved pro UI styling
-                "points": 80,
-                "badge": "🔥 Pro Analyst",
-                "message": "Strong detection!"
-            }
+            return "pro"
         elif score >= 50:
-            return {
-                "tier": "Contributor", # Preserved intermediate UI styling
-                "points": 50,
-                "badge": "⚡ Getting There",
-                "message": "Good partial match"
-            }
+            return "intermediate"
         elif score >= 25:
-            return {
-                "tier": "Novice", # Preserved basic UI styling
-                "points": 25,
-                "badge": "🧪 Beginner",
-                "message": "Some correct signals"
-            }
+            return "basic"
         else:
-            return {
-                "tier": "Novice", # Preserved low UI styling
-                "points": 10,
-                "badge": "❌ Needs Improvement",
-                "message": "Incorrect or weak detection"
-            }
+            return "low"
 
     expected_issues = []
     for issue in issues:
@@ -334,33 +318,18 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
         expected_issues.append(f"row {r} {c} {t}")
 
     user_issues = [x.strip() for x in req.user_input.split(",")]
-    
+
     score, matched = calculate_score(user_issues, expected_issues)
     reward = get_reward(score)
-    
-    critique = f"Matched {matched:.1f}/{len(expected_issues)} issue patterns ({score}%)."
-    
-    # Optional logic from previous function for stats and final data array to keep UI fully happy
-    ages = [r.get("age") for r in original_data if _is_int_like(r.get("age"))]
-    stats = {
-        "age_dist": {str(a): ages.count(a) for a in set(ages) if a is not None},
-        "issue_types": {iss["type"]: 0 for iss in issues}
-    }
-    for iss in issues:
-        stats["issue_types"][iss["type"]] += 1
+    tier = get_tier(score)
 
-    temp_env = DataCleaningEnv(task=_env.task, data=[dict(r) for r in original_data])
-    for action_name in ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates"]:
-        temp_env.step(Action(action=action_name))
-        if temp_env.done: break
+    critique = f"Matched {matched:.1f}/{len(expected_issues)} issues ({score}%)."
 
     return {
-        "score": score / 100.0, # UI natively multiplies 0-1 metrics by 100
-        "critique": critique,
+        "score": score,
         "reward": reward,
-        "final_data": [dict(r) for r in temp_env.state().data],
-        "stats": stats,
-        "explanation": "Expert review processed via automated semantic similarity and pattern matching logic."
+        "tier": tier,
+        "critique": critique
     }
 
 @app.post("/reset")

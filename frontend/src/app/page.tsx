@@ -116,21 +116,37 @@ export default function Home() {
     setIsAuditing(true);
     try {
       const res = await reviewManualAudit(auditInput);
-      // Defensive: ensure reward field always exists
-      if (!res.reward) {
-        const s = res.score ?? 0;
-        res.reward = s >= 1.0
-          ? { tier: "Grand Slam", points: 1000, message: "🟡 GOLD MEDAL: Perfect Audit!" }
-          : s >= 0.8
-          ? { tier: "Expert", points: 500, message: "⚪ SILVER MEDAL: Excellent work." }
-          : s >= 0.5
-          ? { tier: "Contributor", points: 200, message: "🟤 BRONZE MEDAL: Good effort." }
-          : { tier: "Novice", points: 50, message: "🔵 NOVICE: Keep practicing!" };
+      
+      // Adapt the new RL-friendly backend response format (score 0-100, reward -1 to 1)
+      const rawScore = res.score ?? 0;
+      const t = res.tier || "low";
+      
+      // Re-map the API tier onto our UI display objects so the UI doesn't crash
+      let uiReward = { tier: "Novice", points: 10, message: "Incorrect or weak detection" };
+      if (t === "elite") {
+        uiReward = { tier: "Grand Slam", points: 100, message: "Perfect identification!" };
+      } else if (t === "pro") {
+        uiReward = { tier: "Expert", points: 80, message: "Strong detection!" };
+      } else if (t === "intermediate") {
+        uiReward = { tier: "Contributor", points: 50, message: "Good partial match" };
+      } else if (t === "basic") {
+        uiReward = { tier: "Novice", points: 25, message: "Some correct signals" };
       }
-      setAuditResult(res);
-      if (res.score * 100 > bestScore) {
-          setBestScore(res.score * 100);
-          localStorage.setItem("openenv_best_score", (res.score * 100).toString());
+      
+      // Adjust structure for purely UI consumption
+      const finalResult = {
+          score: rawScore / 100.0, // UI maps 0-1 scale visually
+          critique: res.critique || "Matched issue patterns.",
+          reward: uiReward,
+          stats: res.stats || null,
+          final_data: res.final_data || null,
+          explanation: res.explanation || "Evaluation complete."
+      };
+      
+      setAuditResult(finalResult);
+      if (rawScore > bestScore) {
+          setBestScore(rawScore);
+          localStorage.setItem("openenv_best_score", rawScore.toString());
       }
     } catch (e: any) {
       setError("AI Review failed: " + e.message);
