@@ -293,13 +293,7 @@ User's Manual Audit Findings:
         else:
             res = json.loads(clean)
     except Exception as e:
-        # DETERMINISTIC FUZZY EVALUATOR (FALLBACK)
-        user_lower = req.user_input.lower()
-        found_matches = 0
-        total_gt = len(issues)
-        matched_details = []
-        
-        # DETERMINISTIC FUZZY EVALUATOR (ULTRA ROBUST)
+        # DETERMINISTIC FUZZY EVALUATOR (ULTRA ROBUST FALLBACK)
         user_lower = req.user_input.lower()
         found_matches = 0
         total_gt = len(issues)
@@ -314,79 +308,46 @@ User's Manual Audit Findings:
             k_col = str(issue.get('column', '') or '').lower()
             k_type = str(issue.get('type', '') or '').lower().replace("_", " ")
             
-            # 1. Mentioned Row number?
+            # Match by row number or value
             if row_idx != "-1" and (f"row {row_idx}" in user_norm or f"{row_idx} row" in user_norm or row_idx in user_norm.split()):
                 match = True
+            elif k_col in user_norm and total_gt < 5:
+                match = True # Broad match for small datasets
             
-            # 2. Mentioned Column or Issue Type?
-            if (k_col != "none" and k_col != "" and k_col in user_norm) or (len(k_type) > 3 and k_type in user_norm):
-                # If they mention the column/type, give merit if it's the only one or if they mention the row too
-                if row_idx in user_norm or total_gt < 3:
-                   match = True
-            
-            # 3. Mentioned Value?
-            row_data = next((r for i, r in enumerate(original_data) if i == issue.get('row')), {})
-            for val in row_data.values():
-                vs = str(val).lower()
-                if val and len(vs) > 3 and vs in user_norm:
-                    match = True
-                    break
-
             if match: 
                 found_matches += 1
                 matched_details.append(f"Row {row_idx}")
-        
-        # Force a minimum score if they typed something meaningful and there are issues
+
         raw_acc = found_matches / total_gt if total_gt > 0 else 0.0
-        fallback_score = round(raw_acc, 2)
-        
-        if found_matches > 0:
-            fallback_score = max(0.2, fallback_score)
-            
         res = {
-            "score": fallback_score, 
-            "critique": f"Rule-Based Audit: Successfully identified {found_matches} of {total_gt} discrepancies. {raw_review if raw_review.startswith('error:') else ''}"
+            "score": max(0.0, round(raw_acc, 2)),
+            "critique": f"Logic Analysis: Successfully identified {found_matches} of {total_gt} issues in this challenge. {raw_review if raw_review.startswith('error:') else ''}"
         }
     
-    # Ensure score is numeric
-    try:
-        raw_score = res.get("score", 0.0)
-        res["score"] = float(raw_score)
-    except (TypeError, ValueError):
-        res["score"] = 0.0
-
-    # Ensure score is within [-1, 1] range as requested
+    # Final check: ensure 'critique' and 'score' are present and strings
+    if not res.get("critique"):
+        res["critique"] = f"Manual Review Complete: Identified {res.get('score', 0)*100:.0f}% accuracy in your audit findings."
+    
+    res["score"] = float(res.get("score", 0.0))
     res["score"] = max(-1.0, min(1.0, res["score"]))
-
-    # Always add reward to the response
-    res["reward"] = calculate_reward(res.get("score", 0.0))
+    res["reward"] = calculate_reward(res["score"])
     
     # Run a quick automated cleaning session to show the "After" state for this audit
     temp_env = DataCleaningEnv(task=_env.task, data=[dict(r) for r in original_data])
-    priority = ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates", "drop_invalid"]
-    for action_name in priority:
+    for action_name in ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates"]:
         temp_env.step(Action(action=action_name))
         if temp_env.done: break
         
-    res["final_data"] = [dict(r) for r in temp_env.state().data]
-
-    # Added stats for graphs
-    ages = [r.get("age") for r in original_data if _is_int_like(r.get("age"))]
-    res["stats"] = {
-        "age_dist": {str(a): ages.count(a) for a in set(ages) if a is not None},
-        "issue_types": {iss["type"]: 0 for iss in issues}
-    }
-    for iss in issues:
-        res["stats"]["issue_types"][iss["type"]] += 1
-
-    # Final response assembly (ensure premium data format)
     return {
-        "score": res.get("score", 0.0),
-        "critique": res.get("critique") or "Expert Review Complete: Audit processed successfully.",
-        "reward": res.get("reward") if res.get("reward") else calculate_reward(res.get("score", 0.0)),
-        "final_data": res.get("final_data", []),
-        "stats": res.get("stats", {}),
-        "explanation": res.get("explanation", "AI context unavailable (Rate limit or API issue). Detailed results shown below.")
+        "score": res["score"],
+        "critique": res["critique"],
+        "reward": res["reward"],
+        "final_data": [dict(r) for r in temp_env.state().data],
+        "stats": {
+            "age_dist": {str(r.get("age")): 0 for r in original_data},
+            "issue_types": {iss["type"]: 0 for iss in issues}
+        },
+        "explanation": "Expert review processed via automated identification logic." if raw_review.startswith("error:") else "AI verified audit complete."
     }
 
 @app.post("/reset")
