@@ -460,7 +460,7 @@ def get_tasks() -> List[DatasetInfo]:
 def health(): return {"status": "ok"}
 
 # Static Frontend
-FRONTEND_BUILD = Path(__file__).parent / "frontend" / "out"
+FRONTEND_BUILD = Path(__file__).parent.parent / "frontend" / "out"
 if FRONTEND_BUILD.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_BUILD), html=True), name="frontend")
 else:
