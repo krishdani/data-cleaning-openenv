@@ -128,10 +128,9 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
     try:
         # Layer 1: Native Google SDK
         genai.configure(api_key=api_key)
+        # Use a more stable model spec
         model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
-        # Ensure we use a stable model ID format
-        model_id = model_name.replace("models/", "")
-        model = genai.GenerativeModel(model_id)
+        model = genai.GenerativeModel("gemini-1.5-flash")
         
         resp = model.generate_content(
             prompt, 
@@ -308,6 +307,7 @@ User's Manual Audit Findings:
         user_lower = req.user_input.lower()
         found_matches = 0
         total_gt = len(issues)
+        matched_details = []
         
         for issue in issues:
             match = False
@@ -315,43 +315,38 @@ User's Manual Audit Findings:
             k_col = str(issue.get('column', '')).lower()
             k_type = str(issue.get('type', '')).lower().replace("_", " ")
             
-            # Match by Row Number
-            if row_idx != "-1" and (row_idx in user_lower or f"row {row_idx}" in user_lower or f"{row_idx} row" in user_lower):
-                match = True
+            # Stricter Matching: Must mention Row AND (Column OR Type) or a specific Value
+            row_mentioned = (row_idx != "-1" and (f"row {row_idx}" in user_lower or f"{row_idx} row" in user_lower))
+            col_mentioned = (k_col != "none" and k_col != "" and k_col in user_lower)
+            type_mentioned = (len(k_type) > 3 and k_type in user_lower)
             
-            # Match by Column Name
-            if k_col != "none" and k_col in user_lower:
-                match = True
-            
-            # Match by Issue Type keyword
-            if len(k_type) > 2 and k_type in user_lower:
-                match = True
-            
-            # Match by semantic keywords
-            if "missing" in user_lower and ("missing" in k_type or "null" in k_type):
-                match = True
-            if "format" in user_lower and "format" in k_type:
-                match = True
-
-            # Match by values in that row
+            # Check for values
+            value_match = False
             row_data = next((r for i, r in enumerate(original_data) if i == issue.get('row')), {})
             for val in row_data.values():
-                if val and str(val).lower() in user_lower and len(str(val)) > 3:
-                    match = True
+                if val and str(val).lower() in user_lower and len(str(val)) > 4:
+                    value_match = True
                     break
+
+            if (row_mentioned and (col_mentioned or type_mentioned)) or value_match:
+                match = True
+            elif row_mentioned: # Partial match
+                match = True
             
-            if match: found_matches += 1
+            if match: 
+                found_matches += 1
+                matched_details.append(f"Row {row_idx}: {k_col}")
         
-        # Boosted Fallback Score [0.0 - 1.0]
-        if found_matches > 0:
-            raw_acc = found_matches / total_gt if total_gt > 0 else 0.0
-            fallback_score = round(max(0.25, min(1.0, 0.2 + (raw_acc * 1.5))), 2)
-        else:
-            fallback_score = 0.0
+        # Fair Score: Pure Accuracy
+        raw_acc = found_matches / total_gt if total_gt > 0 else 0.0
+        fallback_score = round(raw_acc, 2)
+        
+        if len(req.user_input.split()) < 3 and found_matches == 0:
+            fallback_score = -0.1
             
         res = {
             "score": fallback_score, 
-            "critique": f"Deep Diagnostic: You successfully identified {found_matches} of {total_gt} dataset issues. {raw_review if raw_review.startswith('error:') else ''}"
+            "critique": f"Audit Analysis: You found {found_matches} of {total_gt} issues. Identified: {', '.join(matched_details[:3])}... {raw_review if raw_review.startswith('error:') else ''}"
         }
     
     # Ensure score is numeric
