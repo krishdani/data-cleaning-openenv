@@ -126,22 +126,40 @@ def gemini_call(prompt: str, max_tokens: int = 1000) -> str:
         return "error: missing key"
     
     try:
-        # Layer 1: Native Google SDK
+        # Layer 1: Native Google SDK (Probing for stable ID)
         genai.configure(api_key=api_key)
-        # Use a more stable model spec
-        model_name = os.getenv("MODEL_NAME", "gemini-1.5-flash").strip()
-        model = genai.GenerativeModel("gemini-1.5-flash")
         
-        resp = model.generate_content(
-            prompt, 
-            generation_config={"max_output_tokens": max_tokens, "temperature": 0.1},
-            safety_settings=[
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
-        )
+        # Try a sequence of common model IDs until one works
+        model_ids = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro"]
+        resp = None
+        last_error = ""
+        
+        for m_id in model_ids:
+            try:
+                model = genai.GenerativeModel(m_id)
+                resp = model.generate_content(
+                    prompt, 
+                    generation_config={"max_output_tokens": max_tokens, "temperature": 0.1},
+                    safety_settings=[
+                        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+                    ]
+                )
+                if resp: break
+            except Exception as e:
+                last_error = str(e)
+                continue
+        
+        if resp and hasattr(resp, "text") and resp.text:
+            return resp.text.strip()
+        if resp and resp.candidates:
+            cand = resp.candidates[0]
+            if cand.content and cand.content.parts:
+                return cand.content.parts[0].text.strip()
+        
+        raise Exception(f"Native Probe Failed: {last_error}")
         
         if hasattr(resp, "text") and resp.text:
             return resp.text.strip()
@@ -309,44 +327,48 @@ User's Manual Audit Findings:
         total_gt = len(issues)
         matched_details = []
         
+        # Word-to-number mapping for natural language audits
+        word_map = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8"}
+        for word, num in word_map.items():
+            if word in user_lower:
+                user_lower = user_lower.replace(word, num)
+
         for issue in issues:
             match = False
             row_idx = str(issue.get('row', -1))
             k_col = str(issue.get('column', '')).lower()
             k_type = str(issue.get('type', '')).lower().replace("_", " ")
             
-            # Stricter Matching: Must mention Row AND (Column OR Type) or a specific Value
-            row_mentioned = (row_idx != "-1" and (f"row {row_idx}" in user_lower or f"{row_idx} row" in user_lower))
+            # Row index in input? (Check for digit specifically)
+            row_mentioned = (row_idx != "-1" and (f"row {row_idx}" in user_lower or f"{row_idx} row" in user_lower or row_idx in user_lower.split()))
             col_mentioned = (k_col != "none" and k_col != "" and k_col in user_lower)
             type_mentioned = (len(k_type) > 3 and k_type in user_lower)
             
-            # Check for values
+            # Value search
             value_match = False
             row_data = next((r for i, r in enumerate(original_data) if i == issue.get('row')), {})
             for val in row_data.values():
-                if val and str(val).lower() in user_lower and len(str(val)) > 4:
+                if val and str(val).lower() in user_lower and len(str(val)) > 3:
                     value_match = True
                     break
 
-            if (row_mentioned and (col_mentioned or type_mentioned)) or value_match:
+            if (row_mentioned and (col_mentioned or type_mentioned)) or (value_match and col_mentioned):
                 match = True
-            elif row_mentioned: # Partial match
+            elif row_mentioned and not col_mentioned:
+                # Partial match if they just said "row 1"
                 match = True
             
             if match: 
                 found_matches += 1
-                matched_details.append(f"Row {row_idx}: {k_col}")
+                matched_details.append(f"Row {row_idx} ({k_col})")
         
-        # Fair Score: Pure Accuracy
+        # Non-zero score if anything was found
         raw_acc = found_matches / total_gt if total_gt > 0 else 0.0
         fallback_score = round(raw_acc, 2)
         
-        if len(req.user_input.split()) < 3 and found_matches == 0:
-            fallback_score = -0.1
-            
         res = {
             "score": fallback_score, 
-            "critique": f"Audit Analysis: You found {found_matches} of {total_gt} issues. Identified: {', '.join(matched_details[:3])}... {raw_review if raw_review.startswith('error:') else ''}"
+            "critique": f"Logic Analysis: Found {found_matches} discrepancies. Identified: {', '.join(matched_details[:2])}... {raw_review if raw_review.startswith('error:') else ''}"
         }
     
     # Ensure score is numeric
