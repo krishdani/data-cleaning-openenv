@@ -238,73 +238,109 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     state = _env.state()
     issues = state.issues
     original_data = [dict(r) for r in state.data]
-    
+
     import re
     from difflib import SequenceMatcher
+
+    def normalize(text):
+        text = text.lower().strip()
+        text = re.sub(r'[^a-z0-9 ]', '', text)
+        return text
 
     def similarity(a, b):
         return SequenceMatcher(None, a, b).ratio()
 
-    # STEP 1: NORMALIZE USER INPUT
-    user_input = req.user_input.lower().strip()
-    user_input = re.sub(r'[^a-z0-9 ]', '', user_input)
+    def calculate_score(user_issues, expected_issues):
+        matched_score = 0
+        used_expected = set()
 
-    # STEP 2: NORMALIZE ISSUES
-    normalized_issues = []
+        for user_issue in user_issues:
+            user_issue = normalize(user_issue)
+
+            best_match = 0
+            best_idx = -1
+
+            for i, expected in enumerate(expected_issues):
+                if i in used_expected:
+                    continue
+
+                expected_norm = normalize(expected)
+                sim = similarity(user_issue, expected_norm)
+
+                if sim > best_match:
+                    best_match = sim
+                    best_idx = i
+
+            if best_match > 0.75:
+                matched_score += 1
+                used_expected.add(best_idx)
+
+            elif best_match > 0.45:
+                matched_score += 0.5
+                used_expected.add(best_idx)
+
+        total = len(expected_issues)
+
+        if total == 0:
+            return 0, 0
+
+        score = (matched_score / total) * 100
+        score = round(score)
+
+        return score, matched_score
+
+    def get_reward(score):
+        if score >= 90:
+            return {
+                "tier": "Grand Slam", # Preserved elite UI styling
+                "points": 100,
+                "badge": "🏆 Elite Cleaner",
+                "message": "Perfect identification!"
+            }
+        elif score >= 75:
+            return {
+                "tier": "Expert", # Preserved pro UI styling
+                "points": 80,
+                "badge": "🔥 Pro Analyst",
+                "message": "Strong detection!"
+            }
+        elif score >= 50:
+            return {
+                "tier": "Contributor", # Preserved intermediate UI styling
+                "points": 50,
+                "badge": "⚡ Getting There",
+                "message": "Good partial match"
+            }
+        elif score >= 25:
+            return {
+                "tier": "Novice", # Preserved basic UI styling
+                "points": 25,
+                "badge": "🧪 Beginner",
+                "message": "Some correct signals"
+            }
+        else:
+            return {
+                "tier": "Novice", # Preserved low UI styling
+                "points": 10,
+                "badge": "❌ Needs Improvement",
+                "message": "Incorrect or weak detection"
+            }
+
+    expected_issues = []
     for issue in issues:
         r = str(issue.get("row", ""))
         c = str(issue.get("column", "")).lower()
         t = str(issue.get("type", "")).lower().replace("_", " ")
-        normalized_issues.append(f"row {r} {c} {t}")
-        normalized_issues.append(f"{c} {t} row {r}")
+        expected_issues.append(f"row {r} {c} {t}")
 
-    # STEP 3 & 4: MATCH LOGIC
-    score_list = []
-    if len(normalized_issues) > 0:
-        for issue_str in normalized_issues:
-            sim = similarity(user_input, issue_str)
-            
-            if sim > 0.8:
-                score_list.append(1.0)
-            elif sim > 0.5:
-                score_list.append(0.5)
-            elif any(word in user_input for word in issue_str.split()):
-                score_list.append(0.3)
-            else:
-                score_list.append(0.0)
-
-    # STEP 5: FINAL SCORE
-    if len(score_list) == 0:
-        final_score = 0.0
-    else:
-        final_score = max(score_list)
-
-    # STEP 6: NEVER RETURN ZERO FOR PARTIAL
-    if final_score == 0.0:
-        if any(word in user_input for word in ["age", "email", "row", "missing"]):
-            final_score = 0.2
-
-    # STEP 7: REWARD SYSTEM
-    reward = {
-        "tier": "Novice",
-        "points": int(final_score * 100) + 50,
-        "message": "Partial match"
-    }
-
-    if final_score > 0.8:
-        reward = {
-            "tier": "Grand Slam",
-            "points": 100,
-            "message": "Excellent identification!"
-        }
-    elif final_score > 0.4:
-        reward = {
-            "tier": "Expert",
-            "points": 70,
-            "message": "Good detection"
-        }
-
-    # Added stats for graphs
+    user_issues = [x.strip() for x in req.user_input.split(",")]
+    
+    score, matched = calculate_score(user_issues, expected_issues)
+    reward = get_reward(score)
+    
+    critique = f"Matched {matched:.1f}/{len(expected_issues)} issue patterns ({score}%)."
+    
+    # Optional logic from previous function for stats and final data array to keep UI fully happy
     ages = [r.get("age") for r in original_data if _is_int_like(r.get("age"))]
     stats = {
         "age_dist": {str(a): ages.count(a) for a in set(ages) if a is not None},
@@ -313,20 +349,18 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     for iss in issues:
         stats["issue_types"][iss["type"]] += 1
 
-    # Automated cleaning session to show the "After" state
     temp_env = DataCleaningEnv(task=_env.task, data=[dict(r) for r in original_data])
     for action_name in ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates"]:
         temp_env.step(Action(action=action_name))
         if temp_env.done: break
 
-    # STEP 8: RETURN RESPONSE
     return {
-        "score": final_score,
-        "critique": f"Matched {round(final_score * 100)}% of expected issue patterns.",
+        "score": score / 100.0, # UI natively multiplies 0-1 metrics by 100
+        "critique": critique,
         "reward": reward,
         "final_data": [dict(r) for r in temp_env.state().data],
         "stats": stats,
-        "explanation": "Expert review processed via intelligent fuzzy logic."
+        "explanation": "Expert review processed via automated semantic similarity and pattern matching logic."
     }
 
 @app.post("/reset")
