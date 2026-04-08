@@ -352,8 +352,10 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
 
 @app.post("/reset")
 @app.post("/api/reset")
-def reset_env(req: ResetRequest = Body(...)) -> Dict[str, Any]:
+def reset_env(req: Optional[ResetRequest] = None) -> Dict[str, Any]:
     global _env, _original_data
+    if req is None:
+        req = ResetRequest()
     _env = DataCleaningEnv(task=req.task)
     resp = _env.reset()
     _original_data = [dict(r) for r in resp.observation.data]
