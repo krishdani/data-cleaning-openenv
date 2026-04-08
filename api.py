@@ -239,115 +239,94 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     issues = state.issues
     original_data = [dict(r) for r in state.data]
     
-    prompt = f"""
-Audit the following dataset based on the user's manual report.
-Task: {_env.task} - {TASKS.get(_env.task, {}).get('name', 'Cleaning Task')}
+    import re
+    from difflib import SequenceMatcher
 
-Ground Truth Issues In Dataset:
-{json.dumps([dict(i) for i in issues])}
+    def similarity(a, b):
+        return SequenceMatcher(None, a, b).ratio()
 
-User's Manual Audit Findings:
-"{req.user_input}"
+    # STEP 1: NORMALIZE USER INPUT
+    user_input = req.user_input.lower().strip()
+    user_input = re.sub(r'[^a-z0-9 ]', '', user_input)
 
-    Scoring Rubric (Strict JSON Response):
-    1. Identification Accuracy: Did they find the specific rows/fields with issues?
-    2. Reasoning: Does their explanation make sense for that data type?
-    3. FALSE ALARMS: Did they report something that is NOT an issue? If yes, use a NEGATIVE score.
+    # STEP 2: NORMALIZE ISSUES
+    normalized_issues = []
+    for issue in issues:
+        r = str(issue.get("row", ""))
+        c = str(issue.get("column", "")).lower()
+        t = str(issue.get("type", "")).lower().replace("_", " ")
+        normalized_issues.append(f"row {r} {c} {t}")
+        normalized_issues.append(f"{c} {t} row {r}")
 
-    Rules for score:
-    - Excellent: 0.7 to 1.0
-    - Mostly correct: 0.4 to 0.6
-    - Mixed/Vague: 0.1 to 0.3
-    - No findings or vague: 0.0
-    - WRONG / FALSE ALARMS: -0.1 to -1.0 (Critical Penalty)
-
-    Return a STRICT JSON object:
-    {{
-      "score": <float -1.0 to 1.0>,
-      "critique": "<short 1-2 sentence feedback analyzing their finding>"
-    }}
-    """
-    raw_review = gemini_call(prompt, max_tokens=1000)
-    
-    res = {}
-    try:
-        # Robust cleanup
-        clean = raw_review.strip()
-        if "```" in clean: clean = clean.split("```")[1] if "```" in clean else clean
-        if "json" in clean[:10]: clean = clean.replace("json", "", 1).strip()
-        
-        # Handle single quotes
-        if "'" in clean and '"' not in clean:
-            clean = clean.replace("'", '"')
-
-        # Find first { and last }
-        start = clean.find("{")
-        end = clean.rfind("}")
-        
-        if start != -1:
-            if end == -1 or end <= start: # Truncated
-                json_str = repair_json(clean[start:])
+    # STEP 3 & 4: MATCH LOGIC
+    score_list = []
+    if len(normalized_issues) > 0:
+        for issue_str in normalized_issues:
+            sim = similarity(user_input, issue_str)
+            
+            if sim > 0.8:
+                score_list.append(1.0)
+            elif sim > 0.5:
+                score_list.append(0.5)
+            elif any(word in user_input for word in issue_str.split()):
+                score_list.append(0.3)
             else:
-                json_str = clean[start:end+1]
-            res = json.loads(json_str)
-        else:
-            res = json.loads(clean)
-    except Exception as e:
-        # DETERMINISTIC FUZZY EVALUATOR (ULTRA ROBUST FALLBACK)
-        user_lower = req.user_input.lower()
-        found_matches = 0
-        total_gt = len(issues)
-        matched_details = []
-        
-        # Super-Fuzzy: normalize words
-        user_norm = user_lower.replace("first", "1").replace("second", "2").replace("third", "3").replace("one", "1").replace("two", "2")
+                score_list.append(0.0)
 
-        for issue in issues:
-            match = False
-            row_idx = str(issue.get('row', -1))
-            k_col = str(issue.get('column', '') or '').lower()
-            k_type = str(issue.get('type', '') or '').lower().replace("_", " ")
-            
-            # Match by row number or value
-            if row_idx != "-1" and (f"row {row_idx}" in user_norm or f"{row_idx} row" in user_norm or row_idx in user_norm.split()):
-                match = True
-            elif k_col in user_norm and total_gt < 5:
-                match = True # Broad match for small datasets
-            
-            if match: 
-                found_matches += 1
-                matched_details.append(f"Row {row_idx}")
+    # STEP 5: FINAL SCORE
+    if len(score_list) == 0:
+        final_score = 0.0
+    else:
+        final_score = max(score_list)
 
-        raw_acc = found_matches / total_gt if total_gt > 0 else 0.0
-        res = {
-            "score": max(0.0, round(raw_acc, 2)),
-            "critique": f"Logic Analysis: Successfully identified {found_matches} of {total_gt} issues in this challenge. {raw_review if raw_review.startswith('error:') else ''}"
+    # STEP 6: NEVER RETURN ZERO FOR PARTIAL
+    if final_score == 0.0:
+        if any(word in user_input for word in ["age", "email", "row", "missing"]):
+            final_score = 0.2
+
+    # STEP 7: REWARD SYSTEM
+    reward = {
+        "tier": "Novice",
+        "points": int(final_score * 100) + 50,
+        "message": "Partial match"
+    }
+
+    if final_score > 0.8:
+        reward = {
+            "tier": "Grand Slam",
+            "points": 100,
+            "message": "Excellent identification!"
         }
-    
-    # Final check: ensure 'critique' and 'score' are present and strings
-    if not res.get("critique"):
-        res["critique"] = f"Manual Review Complete: Identified {res.get('score', 0)*100:.0f}% accuracy in your audit findings."
-    
-    res["score"] = float(res.get("score", 0.0))
-    res["score"] = max(-1.0, min(1.0, res["score"]))
-    res["reward"] = calculate_reward(res["score"])
-    
-    # Run a quick automated cleaning session to show the "After" state for this audit
+    elif final_score > 0.4:
+        reward = {
+            "tier": "Expert",
+            "points": 70,
+            "message": "Good detection"
+        }
+
+    # Added stats for graphs
+    ages = [r.get("age") for r in original_data if _is_int_like(r.get("age"))]
+    stats = {
+        "age_dist": {str(a): ages.count(a) for a in set(ages) if a is not None},
+        "issue_types": {iss["type"]: 0 for iss in issues}
+    }
+    for iss in issues:
+        stats["issue_types"][iss["type"]] += 1
+
+    # Automated cleaning session to show the "After" state
     temp_env = DataCleaningEnv(task=_env.task, data=[dict(r) for r in original_data])
     for action_name in ["fix_email", "convert_age", "fill_missing_age", "remove_duplicates"]:
         temp_env.step(Action(action=action_name))
         if temp_env.done: break
-        
+
+    # STEP 8: RETURN RESPONSE
     return {
-        "score": res["score"],
-        "critique": res["critique"],
-        "reward": res["reward"],
+        "score": final_score,
+        "critique": f"Matched {round(final_score * 100)}% of expected issue patterns.",
+        "reward": reward,
         "final_data": [dict(r) for r in temp_env.state().data],
-        "stats": {
-            "age_dist": {str(r.get("age")): 0 for r in original_data},
-            "issue_types": {iss["type"]: 0 for iss in issues}
-        },
-        "explanation": "Expert review processed via automated identification logic." if raw_review.startswith("error:") else "AI verified audit complete."
+        "stats": stats,
+        "explanation": "Expert review processed via intelligent fuzzy logic."
     }
 
 @app.post("/reset")
