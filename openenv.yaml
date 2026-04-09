@@ -5,11 +5,21 @@ description: |
   Agents must detect data quality issues and apply appropriate cleaning actions step-by-step.
 
 tasks:
-  - easy
-  - medium
-  - hard
-  - sprint
-  - nightmare
+  - id: easy
+    name: "Easy Data Cleaning"
+    grader: "env.grader:grade_easy"
+  - id: medium
+    name: "Medium Data Cleaning"
+    grader: "env.grader:grade_medium"
+  - id: hard
+    name: "Hard Data Cleaning"
+    grader: "env.grader:grade_hard"
+  - id: sprint
+    name: "Sprint Data Cleaning"
+    grader: "env.grader:grade_sprint"
+  - id: nightmare
+    name: "Nightmare Data Cleaning"
+    grader: "env.grader:grade_nightmare"
 
 action_schema:
   type: object

@@ -27,7 +27,7 @@ def grade_easy(data: List[Dict[str, Any]]) -> float:
     if "duplicates" not in issue_types:
         score += 0.2
     
-    return round(min(max(score, 0.0), 1.0), 2)
+    return round(min(max(score, 0.01), 0.99), 2)
 
 
 def grade_medium(data: List[Dict[str, Any]]) -> float:
@@ -52,7 +52,7 @@ def grade_medium(data: List[Dict[str, Any]]) -> float:
     if "duplicates" not in issue_types:
         score += 0.2
     
-    return round(min(max(score, 0.0), 1.0), 2)
+    return round(min(max(score, 0.01), 0.99), 2)
 
 
 def grade_hard(data: List[Dict[str, Any]]) -> float:
@@ -67,7 +67,7 @@ def grade_hard(data: List[Dict[str, Any]]) -> float:
         score += 0.25
     if "duplicates" not in issue_types:
         score += 0.25
-    return round(min(max(score, 0.0), 1.0), 2)
+    return round(min(max(score, 0.01), 0.99), 2)
 
 
 def grade_sprint(data: List[Dict[str, Any]]) -> float:
@@ -86,7 +86,7 @@ def grade_sprint(data: List[Dict[str, Any]]) -> float:
     # Bonus for clean data overall
     if len(issues) == 0:
         score += 0.15
-    return round(min(max(score, 0.0), 1.0), 2)
+    return round(min(max(score, 0.01), 0.99), 2)
 
 
 def grade_nightmare(data: List[Dict[str, Any]]) -> float:
@@ -108,7 +108,7 @@ def grade_nightmare(data: List[Dict[str, Any]]) -> float:
         score += 0.2
     elif total_issues <= 3:
         score += 0.1
-    return round(min(max(score, 0.0), 1.0), 2)
+    return round(min(max(score, 0.01), 0.99), 2)
 
 
 def grade(task: str, data: List[Dict[str, Any]]) -> float:
@@ -123,7 +123,7 @@ def grade(task: str, data: List[Dict[str, Any]]) -> float:
     elif task == "nightmare":
         return grade_nightmare(data)
     else:
-        return 0.0
+        return 0.01
 
 
 def get_issue_breakdown(data: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -198,6 +198,6 @@ def calculate_quality_score(
     
     # Final score
     final_score = issue_score + reward_score + efficiency_score
-    metrics["score"] = round(min(max(final_score, 0.0), 1.0), 3)
+    metrics["score"] = round(min(max(final_score, 0.01), 0.99), 3)
     
     return metrics["score"], metrics

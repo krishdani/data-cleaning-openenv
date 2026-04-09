@@ -102,8 +102,46 @@ Return ONLY one action name.
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
+async def run_task(task_name: str, client: AsyncOpenAI):
+    env = AsyncEnvWrapper(task=task_name)
+    history = []
+    rewards = []
+    steps_taken = 0
+    success = False
+    score = 0.0
+
+    log_start(task_name, "DataCleaningEnv", MODEL_NAME)
+
+    try:
+        state = await env.reset()
+
+        for step in range(1, MAX_STEPS + 1):
+            action = await get_action(client, step, history)
+            state, reward, done, _ = await env.step(MyEnvV4Action(message=action))
+            reward = reward or 0.0
+            rewards.append(reward)
+            steps_taken = step
+            log_step(step, action, reward, done)
+            history.append(f"{action}:{reward}")
+            if done:
+                break
+
+        # ✅ FIXED SCORE LOGIC
+        total_reward = sum(rewards)
+        score = total_reward / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD else 0.0
+        
+        # clamp strictly between 0.01 and 0.99
+        score = max(0.01, min(score, 0.99))
+        success = score >= SUCCESS_SCORE_THRESHOLD
+
+    except Exception as e:
+        print(f"[DEBUG] Runtime Error in task {task_name}: {e}", flush=True)
+    finally:
+        await env.close()
+        log_end(success, steps_taken, score, rewards)
+
 async def main():
-    api_key = os.environ.get("HF_TOKEN")  # using your env
+    api_key = os.environ.get("HF_TOKEN")
     base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 
     client = AsyncOpenAI(
@@ -111,53 +149,20 @@ async def main():
         base_url=base_url
     )
 
-    env = AsyncEnvWrapper(task=TASK_NAME)
+    # Respect TASK_NAME if provided, else run all standard tasks
+    env_task = os.environ.get("TASK_NAME")
+    if env_task and env_task in TASKS:
+        tasks_to_run = [env_task]
+    else:
+        # Run at least easy, medium, hard to satisfy "at least 3 tasks"
+        tasks_to_run = ["easy", "medium", "hard"]
+        # Also run others if defined in TASKS
+        for t in TASKS:
+            if t not in tasks_to_run:
+                tasks_to_run.append(t)
 
-    history = []
-    rewards = []
-    steps_taken = 0
-    success = False
-    score = 0.0
+    for task_name in tasks_to_run:
+        await run_task(task_name, client)
 
-    log_start(TASK_NAME, "DataCleaningEnv", MODEL_NAME)
-
-    try:
-        state = await env.reset()
-
-        for step in range(1, MAX_STEPS + 1):
-
-            action = await get_action(client, step, history)
-
-            state, reward, done, _ = await env.step(MyEnvV4Action(message=action))
-
-            reward = reward or 0.0
-
-            rewards.append(reward)
-            steps_taken = step
-
-            log_step(step, action, reward, done)
-
-            history.append(f"{action}:{reward}")
-
-            if done:
-                break
-
-        # ✅ FIXED SCORE LOGIC
-        total_reward = sum(rewards)
-        score = total_reward / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD else 0.0
-
-        # clamp
-        score = max(0.0, min(score, 1.0))
-
-        success = score >= SUCCESS_SCORE_THRESHOLD
-
-    except Exception as e:
-        print(f"[DEBUG] Runtime Error: {e}", flush=True)
-
-    finally:
-        await env.close()
-        log_end(success, steps_taken, score, rewards)
-
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     asyncio.run(main())

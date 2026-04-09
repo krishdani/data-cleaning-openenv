@@ -34,10 +34,11 @@ def check_openenv_yaml() -> bool:
             print(f"  {fail()} openenv.yaml missing: {missing}")
             return False
         tasks = config.get("tasks", [])
-        if not all(t in tasks for t in ["easy", "medium", "hard"]):
+        task_ids = [t["id"] if isinstance(t, dict) else t for t in tasks]
+        if not all(t in task_ids for t in ["easy", "medium", "hard"]):
             print(f"  {fail()} openenv.yaml must have easy, medium, hard tasks")
             return False
-        print(f"  {ok()} openenv.yaml valid (tasks: {tasks})")
+        print(f"  {ok()} openenv.yaml valid (tasks: {task_ids})")
         return True
     except Exception as e:
         print(f"  {fail()} openenv.yaml: {e}")
@@ -85,7 +86,8 @@ def check_env_package() -> bool:
 
 def check_api() -> bool:
     try:
-        with open("api.py", "r", encoding="utf-8") as f:
+        api_file = "api.py" if os.path.exists("api.py") else "server/app.py"
+        with open(api_file, "r", encoding="utf-8") as f:
             content = f.read()
         endpoints = {
             "/reset": 'POST /reset',
@@ -160,7 +162,7 @@ def main():
     section("1. File Structure")
     for path, desc in [
         ("openenv.yaml", "OpenEnv spec"),
-        ("api.py", "FastAPI server"),
+        ("server/app.py", "FastAPI server"),
         ("inference.py", "Baseline inference"),
         ("Dockerfile", "Container config"),
         ("README.md", "Documentation"),
