@@ -73,9 +73,7 @@ _original_data: List[Dict[str, Any]] = []
 # Request Models
 # ---------------------------------------------------------------------------
 class ResetRequest(BaseModel):
-    task: str = Field("easy", validation_alias=AliasChoices("task", "dataset_name"))
-    mode: str = "baseline"
-    model_config = ConfigDict(populate_by_name=True)
+    task: str = "easy"
 
 class AuditRequest(BaseModel):
     user_input: str = Field(..., description="The issues identified by the user manually")
@@ -319,11 +317,21 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
 
     user_issues = [x.strip() for x in req.user_input.split(",")]
 
-    score, matched = calculate_score(user_issues, expected_issues)
-    reward = get_reward(score)
-    tier = get_tier(score)
+    _, matched_score = calculate_score(user_issues, expected_issues)
 
-    critique = f"Matched {matched:.1f}/{len(expected_issues)} issues ({score}%)."
+    # Fractional score in (0,1)
+    epsilon = 1e-6
+    if len(expected_issues) > 0:
+        base_score = matched_score / len(expected_issues)
+    else:
+        base_score = 0.5
+    
+    score = max(epsilon, min(base_score, 1.0 - epsilon))
+    reward = (score * 2) - 1  # Map back to (-1, 1)
+    reward = max(-0.9999, min(reward, 0.9999))
+    tier = get_tier(score * 100)
+
+    critique = f"Matched {matched_score:.1f}/{len(expected_issues)} issues ({round(score*100)}%)."
 
     # Gather Stats for Graphs
     ages = [r.get("age") for r in original_data if _is_int_like(r.get("age"))]
@@ -352,10 +360,8 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
 
 @app.post("/reset")
 @app.post("/api/reset")
-def reset_env(req: Optional[ResetRequest] = None) -> Dict[str, Any]:
+def reset_env(req: ResetRequest) -> Dict[str, Any]:
     global _env, _original_data
-    if req is None:
-        req = ResetRequest()
     _env = DataCleaningEnv(task=req.task)
     resp = _env.reset()
     _original_data = [dict(r) for r in resp.observation.data]

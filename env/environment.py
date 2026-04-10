@@ -144,7 +144,8 @@ class DataCleaningEnv:
             bonus = 0.0
         
         final_score = base_score * 0.7 + bonus
-        return max(0.01, min(final_score, 0.99))
+        epsilon = 1e-6
+        return max(epsilon, min(final_score, 1.0 - epsilon))
     
     def get_quality_metrics(self, steps: int, rewards: List[float]) -> Dict[str, Any]:
         """Get comprehensive quality metrics using grader."""
