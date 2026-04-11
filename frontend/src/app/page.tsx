@@ -50,7 +50,7 @@ export default function Home() {
   const [result, setResult] = useState<CleanResult | null>(null);
   const [originalData, setOriginalData] = useState<Record<string, any>[]>([]);
   const [auditInput, setAuditInput] = useState("");
-  const [auditResult, setAuditResult] = useState<{ score: number; critique: string } | null>(null);
+  const [auditResult, setAuditResult] = useState<{ score: number; critique: string; tier: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAuditing, setIsAuditing] = useState(false);
   const [bestScore, setBestScore] = useState<number>(0);
@@ -287,19 +287,47 @@ export default function Home() {
                         </button>
 
                         {auditResult && (
-                            <div className={clsx(
-                                "p-5 rounded-2xl border flex items-start gap-4 transition-all animate-in zoom-in-95",
-                                auditResult.score > 0.7 ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
-                            )}>
-                                <div className={clsx(
-                                    "w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-lg",
-                                    auditResult.score > 0.7 ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
-                                )}>
-                                    <h4 className="text-lg font-black italic">{(auditResult.score * 100).toFixed(0)}</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in zoom-in-95 duration-500">
+                                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                                     <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 -mr-12 -mt-12 rounded-full blur-2xl" />
+                                     <p className="text-[10px] uppercase font-black text-zinc-500 mb-2 tracking-widest">Quality Score</p>
+                                     <div className="flex items-end gap-1">
+                                         <span className="text-4xl font-black text-white">{(auditResult.score * 100).toFixed(0)}</span>
+                                         <span className="text-zinc-500 font-bold mb-1">%</span>
+                                     </div>
                                 </div>
-                                <div className="pt-1">
-                                    <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">AI Review Critique</div>
-                                    <p className="text-[13px] text-zinc-200 leading-snug">"{auditResult.critique}"</p>
+
+                                <div className={clsx(
+                                    "rounded-2xl p-6 border shadow-xl transition-all relative overflow-hidden",
+                                    auditResult.tier === 'Grand Slam' ? "bg-amber-500/10 border-amber-500/40" :
+                                    auditResult.tier === 'Expert Clean' ? "bg-emerald-500/10 border-emerald-500/40" :
+                                    auditResult.tier === 'Contributor' ? "bg-blue-500/10 border-blue-500/40" :
+                                    "bg-zinc-900 border-zinc-800"
+                                )}>
+                                    <div className="absolute top-0 right-0 p-4 opacity-10">
+                                        <Trophy className={clsx(
+                                            "w-16 h-16",
+                                            auditResult.tier === 'Grand Slam' ? "text-amber-500" : "text-emerald-500"
+                                        )} />
+                                    </div>
+                                    <p className="text-[10px] uppercase font-black text-zinc-500 mb-2 tracking-widest">Achievement Rank</p>
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <div className={clsx(
+                                            "w-2 h-2 rounded-full",
+                                            auditResult.tier === 'Grand Slam' ? "bg-amber-500 animate-pulse" : "bg-emerald-500"
+                                        )} />
+                                        <span className={clsx(
+                                            "text-xl font-black uppercase italic tracking-tighter",
+                                            auditResult.tier === 'Grand Slam' ? "text-amber-400" :
+                                            auditResult.tier === 'Expert Clean' ? "text-emerald-400" :
+                                            auditResult.tier === 'Contributor' ? "text-blue-400" : "text-white"
+                                        )}>
+                                            {auditResult.tier || "Novice"}
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-zinc-400 leading-tight italic line-clamp-2">
+                                        {auditResult.critique}
+                                    </p>
                                 </div>
                             </div>
                         )}

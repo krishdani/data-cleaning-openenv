@@ -76,7 +76,7 @@ export async function fetchTaskPreview(taskId: string): Promise<Record<string, a
   return res.json();
 }
 
-export async function reviewManualAudit(userInput: string): Promise<{ score: number; critique: string }> {
+export async function reviewManualAudit(userInput: string): Promise<{ score: number; critique: string; tier: string }> {
   const res = await fetch(`${API_BASE}/api/review-input`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
