@@ -138,7 +138,7 @@ export async function resetDataset(
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ task }),
+    body: JSON.stringify({ task: task || "easy" }),
   });
 }
 
