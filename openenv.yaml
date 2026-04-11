@@ -112,5 +112,5 @@ task_descriptions:
 grading:
   metric: "Final Score"
   description: "Score = (sum of rewards + issue reduction bonus) / max_possible"
-  scale: "[0.0, 1.0]"
+  scale: "(0.0, 1.0)"
   success_threshold: 0.7

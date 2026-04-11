@@ -124,7 +124,7 @@ class DataCleaningEnv:
 
     def calculate_score(self, rewards: List[float]) -> float:
         if not rewards:
-            return 0.001
+            return 0.01
 
         base_score = sum(rewards) / len(rewards)
 

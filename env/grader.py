@@ -6,15 +6,16 @@ Evaluates agent performance based on issue resolution and data quality.
 from typing import Dict, List, Any, Tuple
 from .utils import detect_issues
 
-# Use 0.001 as minimum — 1e-6 rounds to 0.0000 at 4 decimal places and FAILS validation
-EPS = 1e-3   # Strictly between 0 and 1
+# Use 0.01 as minimum so scores remain inside (0, 1) after 2-decimal formatting.
+EPS = 1e-2
 
 def safe_score(score: float) -> float:
-    if score <= 0:
+    rounded = round(score, 2)
+    if rounded <= 0:
         return EPS
-    if score >= 1:
+    if rounded >= 1:
         return 1 - EPS
-    return round(score, 4)
+    return rounded
 
 def _clamp(score: float) -> float:
     return safe_score(score)
@@ -142,7 +143,7 @@ def grade(task: str, data: List[Dict[str, Any]]) -> float:
     elif task == "nightmare":
         return grade_nightmare(data)
     else:
-        return SCORE_MIN
+        return EPS
 
 
 def get_issue_breakdown(data: List[Dict[str, Any]]) -> Dict[str, int]:

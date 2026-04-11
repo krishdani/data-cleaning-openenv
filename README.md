@@ -37,7 +37,7 @@ This environment is useful for:
 - Training reinforcement learning agents on discrete tabular actions.
 - Hackathon demos for AI-assisted data engineering.
 
-## Environment Architecture
+## Environment Specification
 
 ```text
 User / AI Agent
@@ -66,7 +66,7 @@ Grading System (env/grader.py)
   - Quality score normalization [0.0, 1.0]
 ```
 
-## Reward System
+## Reward
 
 Each episode is worth up to `1.0` total reward:
 
@@ -77,7 +77,7 @@ Each episode is worth up to `1.0` total reward:
 
 The environment provides **reward shaping** across the trajectory, allowing agents to learn which actions deliver the most value for specific issue types.
 
-## Scenario Library (Tasks)
+## Tasks
 
 The environment includes three standardized difficulty levels:
 
@@ -102,7 +102,7 @@ data-cleaning-openenv/
 └── frontend/           # Next.js 14 Dashboard UI
 ```
 
-## Local Setup
+## Quick Start
 
 ### 1. Configure Environment
 ```bash
@@ -129,6 +129,16 @@ uvicorn api:app --host 0.0.0.0 --port 7860
     - `HF_TOKEN`: Your API key for evaluation.
     - `MODEL_NAME`: e.g., `gemini-1.5-flash`.
 3. Push this repository to the Space. Use `main` branch.
+
+## Baseline
+
+The root-level [`inference.py`](/C:/Users/Admin/OneDrive/Desktop/data%20cleaning%20-%20Copy%20(2)/data-cleaning-openenv/inference.py) script uses the OpenAI client with `HF_TOKEN` or `OPENAI_API_KEY`, plus `API_BASE_URL` and `MODEL_NAME`.
+
+Expected baseline behavior on the built-in tasks:
+
+- `easy`: low but non-zero score with the deterministic fallback policy.
+- `medium`: moderate partial-credit score after fixing email/type/missing-age issues.
+- `hard`: partial-credit score after sequentially fixing email, type conversion, missing values, and duplicates.
 
 ## License
 

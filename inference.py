@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 import os
-import json
 import asyncio
-from typing import List, Optional
+from typing import List
 from dotenv import load_dotenv
 load_dotenv()
 from openai import AsyncOpenAI
 from env import DataCleaningEnv, TASKS
 from env.schemas import Action as MyEnvV4Action
+from env.grader import safe_score
 
 # ---------------------------------------------------------------------------
 # CONFIG
@@ -19,20 +19,29 @@ SUCCESS_SCORE_THRESHOLD = float(os.environ.get("SUCCESS_SCORE_THRESHOLD", 0.7))
 MAX_TOTAL_REWARD = float(os.environ.get("MAX_TOTAL_REWARD", 15))
 
 # Score must be strictly between 0 and 1 — never 0.0 or 1.0
-SCORE_MIN = 0.001
-SCORE_MAX = 0.999
+SCORE_MIN = 0.01
+SCORE_MAX = 0.99
 
 # ---------------------------------------------------------------------------
 # LOGGING
 # ---------------------------------------------------------------------------
 def log_start(task, env, model):
-    print(f"[START] {json.dumps({'task': task, 'env': env, 'model': model})}", flush=True)
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 def log_step(step, action, reward, done, error=None):
-    print(f"[STEP] {json.dumps({'step': step, 'action': action, 'reward': reward, 'done': done, 'error': error})}", flush=True)
+    error_value = error if error is not None else "null"
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} "
+        f"done={str(done).lower()} error={error_value}",
+        flush=True,
+    )
 
 def log_end(success, steps, score, rewards):
-    print(f"[END] {json.dumps({'success': success, 'steps': steps, 'score': score, 'rewards': rewards})}", flush=True)
+    reward_values = ",".join(f"{reward:.2f}" for reward in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={reward_values}",
+        flush=True,
+    )
 
 # ---------------------------------------------------------------------------
 # ENV WRAPPER
@@ -103,8 +112,8 @@ Return ONLY one action name from the list above."""
             if valid in action:
                 return valid
 
-    except Exception as e:
-        print(f"[DEBUG] API ERROR: {e}", flush=True)
+    except Exception:
+        pass
 
     return fallback_action(step)
 
@@ -122,7 +131,7 @@ async def run_task(task_name: str, client: AsyncOpenAI):
     log_start(task_name, "DataCleaningEnv", MODEL_NAME)
 
     try:
-        state = await env.reset()
+        await env.reset()
 
         for step in range(1, MAX_STEPS + 1):
             action_name = await get_action(client, step, history)
@@ -131,11 +140,13 @@ async def run_task(task_name: str, client: AsyncOpenAI):
             # Pass the action as both the action field and message field
             action_obj = MyEnvV4Action(action=action_name, message=action_name)
 
-            state, reward, done, _ = await env.step(action_obj)
-            reward = reward or 0.0
+            step_response = await env.step(action_obj)
+            reward = float(step_response.reward or 0.0)
+            done = bool(step_response.done)
+            error = step_response.info.error if step_response.info else None
             rewards.append(reward)
             steps_taken = step
-            log_step(step, action_name, reward, done)
+            log_step(step, action_name, reward, done, error)
             history.append(f"{action_name}:{reward:.2f}")
 
             if done:
@@ -148,46 +159,43 @@ async def run_task(task_name: str, client: AsyncOpenAI):
         else:
             raw_score = 0.5  # safe default
 
-        score = max(SCORE_MIN, min(raw_score, SCORE_MAX))
+        score = max(SCORE_MIN, min(safe_score(raw_score), SCORE_MAX))
         success = score >= SUCCESS_SCORE_THRESHOLD
 
-    except Exception as e:
-        print(f"[DEBUG] Runtime Error in task {task_name}: {e}", flush=True)
-        score = SCORE_MIN  # safe fallback — never 0.0
+    except Exception:
+        score = SCORE_MIN
     finally:
         await env.close()
         log_end(success, steps_taken, score, rewards)
         return {"task_id": task_name, "score": score}
 
 async def main():
-    api_key = os.environ.get("HF_TOKEN")
+    api_key = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY")
     base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
 
     client = AsyncOpenAI(
         api_key=api_key,
         base_url=base_url
     )
+    try:
+        env_task = os.environ.get("TASK_NAME")
+        if env_task and env_task in TASKS:
+            tasks_to_run = [env_task]
+        else:
+            # Run at least easy, medium, hard (platform requires >= 3 tasks)
+            tasks_to_run = ["easy", "medium", "hard"]
+            for t in TASKS:
+                if t not in tasks_to_run:
+                    tasks_to_run.append(t)
 
-    env_task = os.environ.get("TASK_NAME")
-    if env_task and env_task in TASKS:
-        tasks_to_run = [env_task]
-    else:
-        # Run at least easy, medium, hard (platform requires >= 3 tasks)
-        tasks_to_run = ["easy", "medium", "hard"]
-        for t in TASKS:
-            if t not in tasks_to_run:
-                tasks_to_run.append(t)
+        results = []
+        for task_name in tasks_to_run:
+            res = await run_task(task_name, client)
+            results.append(res)
 
-    results = []
-    for task_name in tasks_to_run:
-        res = await run_task(task_name, client)
-        results.append(res)
-
-    print("\n" + "=" * 40)
-    print("FINAL INFERENCE SUMMARY")
-    print("=" * 40)
-    print(json.dumps({"tasks": results}, indent=2))
-    print("=" * 40)
+        return results
+    finally:
+        await client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
