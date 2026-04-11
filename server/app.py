@@ -230,8 +230,13 @@ def calculate_reward(score: float) -> Dict[str, Any]:
 @app.post("/api/review-input")
 def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
     global _env
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key or "your-gemini" in api_key:
+         raise HTTPException(status_code=400, detail="AI Provider not configured. Add your API Key to .env")
+
     if not _env:
-        raise HTTPException(status_code=400, detail="Initialize a task first.")
+        _env = DataCleaningEnv(task="easy")
+        _env.reset()
     
     state = _env.state()
     issues = state.issues
@@ -384,11 +389,13 @@ def get_original_data():
 
 @app.get("/api/tasks/{task_id}/preview")
 def preview_task(task_id: str):
+    global _env, _original_data
     if task_id not in TASKS:
         raise HTTPException(status_code=404, detail="Task not found")
-    temp_env = DataCleaningEnv(task=task_id)
-    resp = temp_env.reset()
-    return [dict(r) for r in resp.observation.data]
+    _env = DataCleaningEnv(task=task_id)
+    resp = _env.reset()
+    _original_data = [dict(r) for r in resp.observation.data]
+    return _original_data
 
 @app.post("/step")
 @app.post("/api/step")

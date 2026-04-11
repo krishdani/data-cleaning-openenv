@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 import os
-import asyncio
+import sys
 from typing import List
 from dotenv import load_dotenv
 load_dotenv()
-from openai import AsyncOpenAI
+from openai import OpenAI
 from env import DataCleaningEnv, TASKS
 from env.schemas import Action as MyEnvV4Action
 from env.grader import safe_score
 
 # ---------------------------------------------------------------------------
-# CONFIG
+# CONFIG (Hackathon Guidelines Compliant)
 # ---------------------------------------------------------------------------
-TASK_NAME = os.environ.get("TASK_NAME", "hard")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4-turbo")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4-turbo")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+if HF_TOKEN is None:
+    raise ValueError("HF_TOKEN environment variable is required")
+
 MAX_STEPS = int(os.environ.get("MAX_STEPS", 10))
 SUCCESS_SCORE_THRESHOLD = float(os.environ.get("SUCCESS_SCORE_THRESHOLD", 0.7))
 MAX_TOTAL_REWARD = float(os.environ.get("MAX_TOTAL_REWARD", 15))
@@ -22,8 +27,14 @@ MAX_TOTAL_REWARD = float(os.environ.get("MAX_TOTAL_REWARD", 15))
 SCORE_MIN = 0.01
 SCORE_MAX = 0.99
 
+# Initialize OpenAI client
+client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=HF_TOKEN
+)
+
 # ---------------------------------------------------------------------------
-# LOGGING
+# LOGGING (Hackathon Guidelines Format)
 # ---------------------------------------------------------------------------
 def log_start(task, env, model):
     print(f"[START] task={task} env={env} model={model}", flush=True)
@@ -36,31 +47,31 @@ def log_step(step, action, reward, done, error=None):
         flush=True,
     )
 
-def log_end(success, steps, score, rewards):
+def log_end(success, steps, rewards):
     reward_values = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={reward_values}",
+        f"[END] success={str(success).lower()} steps={steps} rewards={reward_values}",
         flush=True,
     )
 
 # ---------------------------------------------------------------------------
 # ENV WRAPPER
 # ---------------------------------------------------------------------------
-class AsyncEnvWrapper:
+class EnvWrapper:
     def __init__(self, task: str):
         self._env = DataCleaningEnv(task=task)
 
-    async def reset(self):
+    def reset(self):
         return self._env.reset()
 
-    async def step(self, action):
+    def step(self, action):
         return self._env.step(action)
 
-    async def close(self):
+    def close(self):
         pass
 
 # ---------------------------------------------------------------------------
-# VALID ACTIONS — must match openenv.yaml action_schema enum exactly
+# VALID ACTIONS
 # ---------------------------------------------------------------------------
 VALID_ACTIONS = [
     "fix_email",
@@ -74,25 +85,25 @@ def fallback_action(step: int) -> str:
     return VALID_ACTIONS[(step - 1) % len(VALID_ACTIONS)]
 
 # ---------------------------------------------------------------------------
-# LLM CALL
+# LLM CALL (OpenAI Client)
 # ---------------------------------------------------------------------------
-async def get_action(client: AsyncOpenAI, step: int, history: List[str]) -> str:
+def get_action(step: int, history: List[str]) -> str:
     prompt = f"""You are a data cleaning agent. Choose the best cleaning action for this step.
 
 Step: {step}
 History: {history}
 
 Available actions (return ONLY the action name, nothing else):
-- fix_email         → fix invalid email addresses
-- convert_age       → fix age fields with wrong data types
-- fill_missing_age  → fill in missing age values
-- remove_duplicates → remove duplicate rows
-- drop_invalid      → drop rows that cannot be fixed
+- fix_email
+- convert_age
+- fill_missing_age
+- remove_duplicates
+- drop_invalid
 
-Return ONLY one action name from the list above."""
+Return ONLY one action name."""
 
     try:
-        response = await client.chat.completions.create(
+        response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=10,
@@ -100,14 +111,11 @@ Return ONLY one action name from the list above."""
         )
 
         action = response.choices[0].message.content.strip().lower()
-
-        # Clean up common LLM formatting issues
         action = action.strip('"').strip("'").strip()
 
         if action in VALID_ACTIONS:
             return action
 
-        # Try partial match
         for valid in VALID_ACTIONS:
             if valid in action:
                 return valid
@@ -120,82 +128,59 @@ Return ONLY one action name from the list above."""
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
-async def run_task(task_name: str, client: AsyncOpenAI):
-    env = AsyncEnvWrapper(task=task_name)
-    history = []
+def run_task(task_name: str):
+    env = EnvWrapper(task=task_name)
     rewards = []
     steps_taken = 0
     success = False
-    score = SCORE_MIN  # default: never exactly 0.0
 
     log_start(task_name, "DataCleaningEnv", MODEL_NAME)
 
     try:
-        await env.reset()
+        env.reset()
 
         for step in range(1, MAX_STEPS + 1):
-            action_name = await get_action(client, step, history)
+            action_name = get_action(step, rewards)
 
-            # CRITICAL FIX: The action_schema requires "action" field, not just "message"
-            # Pass the action as both the action field and message field
             action_obj = MyEnvV4Action(action=action_name, message=action_name)
 
-            step_response = await env.step(action_obj)
+            step_response = env.step(action_obj)
             reward = float(step_response.reward or 0.0)
             done = bool(step_response.done)
             error = step_response.info.error if step_response.info else None
+            
             rewards.append(reward)
             steps_taken = step
             log_step(step, action_name, reward, done, error)
-            history.append(f"{action_name}:{reward:.2f}")
 
             if done:
                 break
 
-        # Compute score — clamp strictly to (0, 1)
+        # Score calculation for internal success tracking
         total_reward = sum(rewards)
-        if MAX_TOTAL_REWARD and MAX_TOTAL_REWARD > 0:
-            raw_score = total_reward / MAX_TOTAL_REWARD
-        else:
-            raw_score = 0.5  # safe default
-
-        score = max(SCORE_MIN, min(safe_score(raw_score), SCORE_MAX))
+        raw_score = total_reward / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.5
+        score = max(0.0, min(safe_score(raw_score), 1.0))
         success = score >= SUCCESS_SCORE_THRESHOLD
 
-    except Exception:
-        score = SCORE_MIN
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
     finally:
-        await env.close()
-        log_end(success, steps_taken, score, rewards)
-        return {"task_id": task_name, "score": score}
+        env.close()
+        log_end(success, steps_taken, rewards)
 
-async def main():
-    api_key = os.environ.get("HF_TOKEN") or os.environ.get("OPENAI_API_KEY")
-    base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
-
-    client = AsyncOpenAI(
-        api_key=api_key,
-        base_url=base_url
-    )
+def main():
     try:
         env_task = os.environ.get("TASK_NAME")
         if env_task and env_task in TASKS:
             tasks_to_run = [env_task]
         else:
-            # Run at least easy, medium, hard (platform requires >= 3 tasks)
             tasks_to_run = ["easy", "medium", "hard"]
-            for t in TASKS:
-                if t not in tasks_to_run:
-                    tasks_to_run.append(t)
 
-        results = []
         for task_name in tasks_to_run:
-            res = await run_task(task_name, client)
-            results.append(res)
-
-        return results
-    finally:
-        await client.close()
+            run_task(task_name)
+            
+    except Exception as e:
+        print(f"Global Error: {e}", file=sys.stderr)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
