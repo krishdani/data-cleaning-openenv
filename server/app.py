@@ -23,7 +23,7 @@ import google.generativeai as genai
 
 from env import DataCleaningEnv, TASKS, grade
 from env.schemas import Action, Observation, StepResponse, ResetResponse
-from env.grader import calculate_quality_score
+from env.grader import calculate_quality_score, safe_score
 
 # Load environment variables
 load_dotenv()
@@ -319,14 +319,13 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
 
     _, matched_score = calculate_score(user_issues, expected_issues)
 
-    # Fractional score in (0.001, 0.999)
-    epsilon = 0.001
+    # Fractional score strictly in (0, 1) using global safety clamp
     if len(expected_issues) > 0:
         base_score = matched_score / len(expected_issues)
     else:
         base_score = 0.5
     
-    score = max(epsilon, min(base_score, 0.999))
+    score = safe_score(base_score)
     reward = (score * 2) - 1  # Map back to (-1, 1)
     reward = max(-0.999, min(reward, 0.999))
     tier = get_tier(score * 100)

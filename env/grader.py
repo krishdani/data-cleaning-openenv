@@ -7,13 +7,17 @@ from typing import Dict, List, Any, Tuple
 from .utils import detect_issues
 
 # Use 0.001 as minimum — 1e-6 rounds to 0.0000 at 4 decimal places and FAILS validation
-SCORE_MIN = 0.001
-SCORE_MAX = 0.999
+EPS = 1e-3   # Strictly between 0 and 1
 
+def safe_score(score: float) -> float:
+    if score <= 0:
+        return EPS
+    if score >= 1:
+        return 1 - EPS
+    return round(score, 4)
 
-def _clamp(score: float, decimals: int = 4) -> float:
-    """Clamp score to strictly open interval (0, 1) — never 0.0 or 1.0."""
-    return round(max(SCORE_MIN, min(score, SCORE_MAX)), decimals)
+def _clamp(score: float) -> float:
+    return safe_score(score)
 
 
 def grade_easy(data: List[Dict[str, Any]]) -> float:

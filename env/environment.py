@@ -123,28 +123,24 @@ class DataCleaningEnv:
         return StepResponse(observation=self.state(), reward=reward, done=self.done, info=info)
 
     def calculate_score(self, rewards: List[float]) -> float:
-        """
-        Calculate final score based on accumulated rewards.
-        
-        Formula:
-        - Base: sum of rewards / num steps
-        - Bonus: Issue reduction percentage
-        - Clamped: [0.0, 1.0]
-        """
         if not rewards:
             return 0.001
 
         base_score = sum(rewards) / len(rewards)
-        
-        # Bonus for issue reduction
+
         if self.initial_issue_count > 0:
-            issue_reduction = (self.initial_issue_count - len(self.issues)) / self.initial_issue_count
+            issue_reduction = (
+                self.initial_issue_count - len(self.issues)
+            ) / self.initial_issue_count
             bonus = issue_reduction * 0.3
         else:
             bonus = 0.0
-        
+
         final_score = base_score * 0.7 + bonus
-        return max(0.001, min(final_score, 0.999))
+
+        # 🔥 CRITICAL FIX
+        from .grader import safe_score
+        return safe_score(final_score)
     
     def get_quality_metrics(self, steps: int, rewards: List[float]) -> Dict[str, Any]:
         """Get comprehensive quality metrics using grader."""
