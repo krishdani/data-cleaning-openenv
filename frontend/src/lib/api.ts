@@ -1,9 +1,4 @@
-// ✅ Relative paths are safer on Hugging Face Spaces iframes (same-origin policy)
 export const API_BASE = "";
-
-// -------------------------------------------------------------------
-// TYPES
-// -------------------------------------------------------------------
 
 export interface TaskInfo {
   name: string;
@@ -43,113 +38,63 @@ export interface Diagnostics {
   tasks: string[];
 }
 
-export interface AuditReward {
-  tier: string;
-  points: number;
-  message: string;
-}
-
-export interface AuditResult {
-  score: number;
-  critique: string;
-  reward: AuditReward;
-  final_data?: Record<string, any>[];
-  explanation?: string;
-  stats?: {
-    age_dist: Record<string, number>;
-    issue_types: Record<string, number>;
-  };
-}
-
-// -------------------------------------------------------------------
-// SAFE FETCH HELPER (VERY IMPORTANT)
-// -------------------------------------------------------------------
-
-async function safeFetch(url: string, options?: RequestInit) {
-  try {
-    const res = await fetch(url, options);
-    const bodyText = await res.text();
-    
-    if (!res.ok) {
-      let errStr = bodyText || `${res.status} ${res.statusText}`;
-      try {
-          const errJson = JSON.parse(bodyText);
-          errStr = errJson.detail || JSON.stringify(errJson);
-      } catch {
-          // Keep bodyText as is
-      }
-      throw new Error(errStr);
-    }
-    
-    return JSON.parse(bodyText);
-  } catch (error: any) {
-    console.error("API ERROR:", error.message);
-    throw new Error(`Cloud Error: ${error.message}`);
-  }
-}
-
-// -------------------------------------------------------------------
-// API FUNCTIONS
-// -------------------------------------------------------------------
-
 export async function fetchTasks(): Promise<TaskInfo[]> {
-  return safeFetch(`${API_BASE}/api/tasks`);
+  const res = await fetch(`${API_BASE}/api/tasks`);
+  if (!res.ok) throw new Error("Failed to fetch tasks");
+  return res.json();
 }
 
+/** Alias for backward compatibility */
 export const fetchDatasets = fetchTasks;
 
 export async function fetchDiagnostics(): Promise<Diagnostics> {
-  return safeFetch(`${API_BASE}/api/diagnostics`);
+  const res = await fetch(`${API_BASE}/api/diagnostics`);
+  if (!res.ok) throw new Error("Failed to fetch diagnostics");
+  return res.json();
 }
 
-export async function uploadDataset(
-  file: File
-): Promise<{ task: string; row_count: number }> {
+export async function uploadDataset(file: File): Promise<{ task: string; row_count: number }> {
   const formData = new FormData();
   formData.append("file", file);
-
-  return safeFetch(`${API_BASE}/api/upload`, {
+  const res = await fetch(`${API_BASE}/api/upload`, {
     method: "POST",
     body: formData,
   });
+  if (!res.ok) throw new Error("Upload failed");
+  return res.json();
 }
 
 export async function fetchOriginalData(): Promise<Record<string, any>[]> {
-  return safeFetch(`${API_BASE}/api/original-data`);
+  const res = await fetch(`${API_BASE}/api/original-data`);
+  if (!res.ok) throw new Error("Failed to fetch original data");
+  return res.json();
 }
 
-export async function reviewManualAudit(
-  userInput: string
-): Promise<AuditResult> {
-  return safeFetch(`${API_BASE}/api/review-input`, {
+export async function fetchTaskPreview(taskId: string): Promise<Record<string, any>[]> {
+  const res = await fetch(`${API_BASE}/api/tasks/${taskId}/preview`);
+  if (!res.ok) throw new Error("Failed to fetch preview");
+  return res.json();
+}
+
+export async function reviewManualAudit(userInput: string): Promise<{ score: number; critique: string }> {
+  const res = await fetch(`${API_BASE}/api/review-input`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_input: userInput }),
   });
+  if (!res.ok) throw new Error("Review failed");
+  return res.json();
 }
 
-export async function resetDataset(
-  task: string
-): Promise<{ status: string }> {
-  return safeFetch(`${API_BASE}/api/reset`, {
+export async function runCleaning(task: string): Promise<CleanResult> {
+  const res = await fetch(`${API_BASE}/api/clean`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ task: task || "easy" }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task, mode: "baseline" }),
   });
-}
-
-export async function runCleaning(
-  task: string
-): Promise<CleanResult> {
-  return safeFetch(`${API_BASE}/api/clean`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ task }),
-  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Unknown error" }));
+    throw new Error(err.detail?.[0]?.msg || err.detail || "Cleaning pipeline failed");
+  }
+  return res.json();
 }

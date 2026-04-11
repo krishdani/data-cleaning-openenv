@@ -382,6 +382,14 @@ async def reset_env(request: Request) -> Dict[str, Any]:
 def get_original_data():
     return _original_data
 
+@app.get("/api/tasks/{task_id}/preview")
+def preview_task(task_id: str):
+    if task_id not in TASKS:
+        raise HTTPException(status_code=404, detail="Task not found")
+    temp_env = DataCleaningEnv(task=task_id)
+    resp = temp_env.reset()
+    return [dict(r) for r in resp.observation.data]
+
 @app.post("/step")
 @app.post("/api/step")
 def step_env(req: Optional[StepRequest] = Body(None)) -> Dict[str, Any]:

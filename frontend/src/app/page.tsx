@@ -8,12 +8,11 @@ import {
   uploadDataset, 
   fetchOriginalData, 
   reviewManualAudit,
-  resetDataset,
+  fetchTaskPreview,
   TaskInfo, 
   CleanResult, 
   StepLog, 
-  Diagnostics,
-  AuditResult
+  Diagnostics 
 } from "@/lib/api";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { RewardChart } from "@/components/RewardChart";
@@ -36,10 +35,7 @@ import {
   Trophy,
   LayoutGrid,
   FileText,
-  MousePointer2,
-  Medal,
-  Award,
-  Coins
+  MousePointer2
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -54,7 +50,7 @@ export default function Home() {
   const [result, setResult] = useState<CleanResult | null>(null);
   const [originalData, setOriginalData] = useState<Record<string, any>[]>([]);
   const [auditInput, setAuditInput] = useState("");
-  const [auditResult, setAuditResult] = useState<AuditResult | null>(null);
+  const [auditResult, setAuditResult] = useState<{ score: number; critique: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isAuditing, setIsAuditing] = useState(false);
   const [bestScore, setBestScore] = useState<number>(0);
@@ -82,16 +78,22 @@ export default function Home() {
   const handleTaskSelect = async (task: string) => {
     handleReset();
     setSelectedTask(task);
-    setIsAuditing(true); // Loading...
     try {
-        await resetDataset(task);
+        const data = await fetchTaskPreview(task);
+        setOriginalData(data);
+        setStage("initialized"); // Automatically initialize for audit
+    } catch (e: any) {
+        setError("Failed to load preview: " + e.message);
+    }
+  };
+
+  const handleInitChallenge = async (task: string) => {
+    try {
         const data = await fetchOriginalData();
         setOriginalData(data);
         setStage("initialized");
     } catch (e: any) {
-        setError("Failed to load dataset: " + e.message);
-    } finally {
-        setIsAuditing(false);
+        setError(e.message);
     }
   };
 
@@ -116,38 +118,10 @@ export default function Home() {
     setIsAuditing(true);
     try {
       const res = await reviewManualAudit(auditInput);
-      
-      // Adapt the new RL-friendly backend response format (score 0-100, reward -1 to 1)
-      const rawScore = res.score ?? 0;
-      const rawReward = typeof res.reward === 'number' ? res.reward : 0;
-      const t = (res as any).tier || "low";
-      
-      // Re-map the API tier onto our UI display objects so the UI doesn't crash
-      let uiReward = { tier: "Novice", points: rawReward, message: "Incorrect or weak detection" };
-      if (t === "elite") {
-        uiReward = { tier: "Grand Slam", points: rawReward, message: "Perfect identification!" };
-      } else if (t === "pro") {
-        uiReward = { tier: "Expert", points: rawReward, message: "Strong detection!" };
-      } else if (t === "intermediate") {
-        uiReward = { tier: "Contributor", points: rawReward, message: "Good partial match" };
-      } else if (t === "basic") {
-        uiReward = { tier: "Novice", points: rawReward, message: "Some correct signals" };
-      }
-      
-      // Adjust structure for purely UI consumption
-      const finalResult: any = {
-          score: rawScore / 100.0, // UI maps 0-1 scale visually
-          critique: res.critique || "Matched issue patterns.",
-          reward: uiReward,
-          stats: res.stats || undefined,
-          final_data: res.final_data || undefined,
-          explanation: res.explanation || "Evaluation complete."
-      };
-      
-      setAuditResult(finalResult);
-      if (rawScore > bestScore) {
-          setBestScore(rawScore);
-          localStorage.setItem("openenv_best_score", rawScore.toString());
+      setAuditResult(res);
+      if (res.score * 100 > bestScore) {
+          setBestScore(res.score * 100);
+          localStorage.setItem("openenv_best_score", (res.score * 100).toString());
       }
     } catch (e: any) {
       setError("AI Review failed: " + e.message);
@@ -174,50 +148,41 @@ export default function Home() {
       <nav className="border-b border-zinc-900 px-6 py-4 bg-black/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-900/20">
-              <Zap className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-white/5">
+              <Database className="w-5 h-5 text-black" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
                 DataClean.io
-                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono uppercase tracking-widest italic">Interative Studio</span>
+                <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-mono uppercase tracking-widest">v1.2</span>
               </h1>
+              <p className="text-xs text-zinc-500">The "LeetCode" for Data Engineers</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-6">
-            <div className="bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 flex items-center gap-1">
-                  <button 
-                      onClick={() => { setViewMode("challenges"); handleReset(); }}
-                      className={clsx(
-                          "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
-                          viewMode === "challenges" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
-                      )}
-                  >
-                      <Trophy className="w-3.5 h-3.5" /> Challenges
-                  </button>
-                  <button 
-                      onClick={() => { setViewMode("refiner"); handleReset(); }}
-                      className={clsx(
-                          "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
-                          viewMode === "refiner" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
-                      )}
-                  >
-                      <Sparkles className="w-3.5 h-3.5" /> Auto-Refiner
-                  </button>
-            </div>
+          <div className="bg-zinc-900/50 p-1 rounded-xl border border-zinc-800 flex items-center gap-1">
+                <button 
+                    onClick={() => { setViewMode("challenges"); handleReset(); }}
+                    className={clsx(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                        viewMode === "challenges" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                >
+                    <Trophy className="w-3.5 h-3.5" /> Challenges
+                </button>
+                <button 
+                    onClick={() => { setViewMode("refiner"); handleReset(); }}
+                    className={clsx(
+                        "px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2",
+                        viewMode === "refiner" ? "bg-white text-black shadow-lg" : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                >
+                    <Sparkles className="w-3.5 h-3.5" /> Auto-Refiner
+                </button>
+          </div>
 
-            <div className="h-6 w-px bg-zinc-800 mx-2" />
-            
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={() => { handleReset(); window.location.reload(); }}
-                className="flex items-center gap-2 px-3 py-1.5 border border-red-900/30 hover:border-red-600/50 hover:bg-red-950/20 rounded-lg text-[10px] font-black uppercase tracking-widest text-red-500 transition-all"
-              >
-                <RotateCcw className="w-3 h-3" /> Reset Studio
-              </button>
-              <DiagnosticsBadge />
-            </div>
+          <div className="flex items-center gap-4">
+            <DiagnosticsBadge />
           </div>
         </div>
       </nav>
@@ -244,8 +209,8 @@ export default function Home() {
                 </div>
 
                 <div className="col-span-12 lg:col-span-4 flex flex-col gap-4">
-                    {tasks.map((info) => {
-                        const level = info.task;
+                    {["easy", "medium", "hard"].map((level) => {
+                        const info = tasks.find(t => t.task === level);
                         const isSelected = selectedTask === level;
                         return (
                             <button 
@@ -264,11 +229,9 @@ export default function Home() {
                                         "px-2 py-0.5 rounded text-[10px] font-black uppercase",
                                         level === "easy" ? "bg-emerald-500/10 text-emerald-500" :
                                         level === "medium" ? "bg-yellow-500/10 text-yellow-500" :
-                                        level === "hard" ? "bg-orange-500/10 text-orange-500" :
-                                        level === "sprint" ? "bg-indigo-500/10 text-indigo-500" :
                                         "bg-red-500/10 text-red-500"
                                     )}>
-                                        {level === "easy" ? "Beginner" : level === "medium" ? "Intermediate" : level === "hard" ? "Advanced" : level === "sprint" ? "Pro" : "Ultimate"}
+                                        {level === "easy" ? "Beginner" : level === "medium" ? "Intermediate" : "Advanced"}
                                     </div>
                                 </div>
                                 <p className="text-xs text-zinc-500 leading-relaxed italic mb-4 line-clamp-2">"{info?.description || 'Loading...'}"</p>
@@ -285,28 +248,32 @@ export default function Home() {
                             </button>
                         );
                     })}
+
+                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-3">
+                        <div className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Controls</div>
+                        <button 
+                            onClick={handleReset}
+                            className="w-full py-3 bg-zinc-900 text-zinc-400 border border-zinc-800 rounded-xl text-xs font-bold hover:text-white hover:border-zinc-700 transition-all flex items-center justify-center gap-2"
+                        >
+                            <RotateCcw className="w-4 h-4" /> Reset Challenge
+                        </button>
+                    </div>
                 </div>
 
                 <div className="col-span-12 lg:col-span-8 flex flex-col gap-6">
-                    {/* Dataset Preview - Now at Top */}
-                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-inner min-h-[300px]">
-                        <DataTable label={`CHALLENGE DATASET: ${selectedTask.toUpperCase()}`} data={originalData} variant="before" />
-                    </div>
-
-                    {/* Manual Submission Area - Now at Bottom */}
                     <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
                         <div className="flex items-center justify-between">
                             <h2 className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 flex items-center gap-2">
-                                <Search className="w-4 h-4 text-indigo-400" /> Identification Audit
+                                <Search className="w-4 h-4 text-indigo-400" /> Manual Identification Audit
                             </h2>
-                            {stage === "initialized" && <span className="text-[10px] font-black text-emerald-400 animate-pulse flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> DATA LOADED - START AUDIT</span>}
+                            {stage === "initialized" && <span className="text-[10px] font-black text-emerald-400 animate-pulse flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> READY FOR AUDIT</span>}
                         </div>
                         
                         <textarea 
                             value={auditInput}
                             onChange={(e) => setAuditInput(e.target.value)}
-                            disabled={stage !== "initialized" || isAuditing}
-                            placeholder="Type what's missing or wrong in the data above... e.g. Row 2 has a missing age, Row 5 email is invalid."
+                            disabled={stage !== "initialized"}
+                            placeholder="Identify specific missing ages, malformed emails, or duplicates here..."
                             className="w-full h-32 bg-black border border-zinc-900 rounded-xl p-4 text-[13px] text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-indigo-500/50 transition-colors resize-none disabled:opacity-20"
                         />
 
@@ -320,141 +287,26 @@ export default function Home() {
                         </button>
 
                         {auditResult && (
-                            <div className="flex flex-col gap-4 animate-in slide-in-from-top-4 duration-500">
-                                {/* Score and Critique Side-by-Side */}
-                                <div className="grid grid-cols-12 gap-4">
-                                    <div className={clsx(
-                                        "col-span-12 md:col-span-3 p-6 rounded-2xl border flex flex-col items-center justify-center gap-2 shadow-xl",
-                                        auditResult.score > 0.7 ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
-                                    )}>
-                                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-2">SCORE</div>
-                                        <div className={clsx(
-                                            "text-5xl font-black italic",
-                                            auditResult.score > 0.3 ? "text-emerald-400" : auditResult.score < 0 ? "text-red-600" : "text-red-400"
-                                        )}>
-                                            {isNaN(auditResult.score) ? "0" : (auditResult.score * 100).toFixed(0)}
-                                        </div>
-                                        <div className="text-[10px] font-bold text-zinc-600">Normalization: [-1, 1]</div>
-                                    </div>
-
-                                    <div className="col-span-12 md:col-span-9 p-6 rounded-2xl border border-zinc-900 bg-zinc-950/50 backdrop-blur-sm flex flex-col gap-2">
-                                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                                            <FileText className="w-3.5 h-3.5" /> AI Review Critique
-                                        </div>
-                                        <p className="text-[14px] text-zinc-300 leading-relaxed italic">
-                                            "{auditResult.critique}"
-                                        </p>
-                                        {/* AI Data Summary / Explanation */}
-                                        {auditResult.explanation && (
-                                            <div className="mt-4 p-4 bg-indigo-500/5 rounded-xl border border-indigo-500/10">
-                                                <div className="text-[9px] font-black uppercase text-indigo-400 mb-1">AI DATA CONTEXT</div>
-                                                <p className="text-[12px] text-zinc-400 leading-normal">{auditResult.explanation}</p>
-                                            </div>
-                                        )}
-                                    </div>
+                            <div className={clsx(
+                                "p-5 rounded-2xl border flex items-start gap-4 transition-all animate-in zoom-in-95",
+                                auditResult.score > 0.7 ? "bg-emerald-500/5 border-emerald-500/20" : "bg-red-500/5 border-red-500/20"
+                            )}>
+                                <div className={clsx(
+                                    "w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-lg",
+                                    auditResult.score > 0.7 ? "bg-emerald-500 text-white" : "bg-red-500 text-white"
+                                )}>
+                                    <h4 className="text-lg font-black italic">{(auditResult.score * 100).toFixed(0)}</h4>
                                 </div>
-
-                                {/* Data Visualization Graphs */}
-                                {auditResult.stats && (
-                                    <div className="grid grid-cols-12 gap-4">
-                                        <div className="col-span-12 md:col-span-6 bg-zinc-950 border border-zinc-900 rounded-2xl p-6">
-                                            <h3 className="text-[10px] font-black uppercase text-zinc-500 mb-4 flex items-center gap-2">
-                                                <BarChart3 className="w-3.5 h-3.5 text-indigo-400" /> Age Distribution
-                                            </h3>
-                                            <div className="h-[200px] w-full">
-                                                <RewardChart 
-                                                    data={Object.entries(auditResult.stats.age_dist).map(([age, count]) => ({ 
-                                                        name: `Age ${age}`, 
-                                                        points: count as number 
-                                                    }))} 
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="col-span-12 md:col-span-6 bg-zinc-950 border border-zinc-900 rounded-2xl p-6">
-                                            <h3 className="text-[10px] font-black uppercase text-zinc-500 mb-4 flex items-center gap-2">
-                                                <AlertTriangle className="w-3.5 h-3.5 text-red-400" /> Issue Frequency
-                                            </h3>
-                                            <div className="h-[200px] w-full">
-                                                <RewardChart 
-                                                    data={Object.entries(auditResult.stats.issue_types).map(([type, count]) => ({ 
-                                                        name: type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '), 
-                                                        points: count as number 
-                                                    }))} 
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Reward System Box */}
-                                <div className="bg-gradient-to-r from-zinc-900 to-black border border-zinc-800 rounded-2xl p-6 relative overflow-hidden group">
-                                    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-                                        <Trophy className="w-24 h-24 text-white" />
-                                    </div>
-                                    
-                                    <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
-                                        <div className="flex items-center gap-5">
-                                            <div className={clsx(
-                                                "w-16 h-16 rounded-2xl flex items-center justify-center shadow-2xl transition-transform group-hover:scale-110",
-                                                auditResult.reward.tier === "Grand Slam" ? "bg-amber-400 text-amber-950" :
-                                                auditResult.reward.tier === "Expert" ? "bg-zinc-300 text-zinc-900" :
-                                                auditResult.reward.tier === "Contributor" ? "bg-orange-700 text-orange-50" :
-                                                "bg-blue-600 text-white"
-                                            )}>
-                                                {auditResult.reward.tier === "Grand Slam" ? <Trophy className="w-8 h-8" /> :
-                                                 auditResult.reward.tier === "Expert" ? <Medal className="w-8 h-8" /> :
-                                                 auditResult.reward.tier === "Contributor" ? <Award className="w-8 h-8" /> :
-                                                 <MousePointer2 className="w-8 h-8" />}
-                                            </div>
-                                            <div>
-                                                <div className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 mb-1">HACKATHON REWARD</div>
-                                                <h3 className="text-xl font-black text-white uppercase italic tracking-tighter">
-                                                    {auditResult.reward.tier} TIER
-                                                </h3>
-                                                <p className="text-[11px] text-zinc-400 font-medium max-w-xs">{auditResult.reward.message}</p>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex flex-col items-end gap-2 pr-4">
-                                            <div className="flex items-center gap-2 bg-zinc-800/50 px-4 py-2 rounded-xl border border-zinc-700">
-                                                <Coins className="w-4 h-4 text-amber-400" />
-                                                <span className="text-lg font-black text-white">
-                                                    {isNaN(auditResult.reward.points) ? "0.00" : (auditResult.reward.points > 0 ? "+" : "") + Number(auditResult.reward.points).toFixed(2)} 
-                                                    <span className="text-[10px] text-zinc-500 ml-1 uppercase">ENV RWD</span>
-                                                </span>
-                                            </div>
-                                            <div className="text-[10px] font-bold text-indigo-400 animate-pulse uppercase tracking-widest">Rewards Unlocked!</div>
-                                        </div>
-                                    </div>
+                                <div className="pt-1">
+                                    <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1">AI Review Critique</div>
+                                    <p className="text-[13px] text-zinc-200 leading-snug">"{auditResult.critique}"</p>
                                 </div>
-
-                                {/* Cleaned Result Display */}
-                                {auditResult.final_data && (
-                                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-xl flex flex-col gap-4 animate-in fade-in duration-700">
-                                        <div className="flex items-center justify-between">
-                                            <h2 className="text-[11px] font-bold uppercase tracking-widest text-zinc-400 flex items-center gap-2">
-                                                <Sparkles className="w-4 h-4 text-emerald-400" /> Post-Audit Cleaned Dataset
-                                            </h2>
-                                            <div className="flex items-center gap-2">
-                                                <button 
-                                                    onClick={() => setAuditResult(null)}
-                                                    className="px-3 py-1 bg-zinc-900 text-zinc-400 text-[10px] font-bold rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-all"
-                                                >
-                                                    Revise Audit
-                                                </button>
-                                                <button 
-                                                    onClick={() => { handleReset(); handleTaskSelect(selectedTask); }}
-                                                    className="px-3 py-1 bg-zinc-100 text-black text-[10px] font-bold rounded-lg hover:bg-white transition-all"
-                                                >
-                                                    Clear All
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <DataTable label="VERIFIED OUTPUT" data={auditResult.final_data} variant="after" />
-                                    </div>
-                                )}
                             </div>
                         )}
+                    </div>
+
+                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 shadow-inner min-h-[400px]">
+                        <DataTable label={`PREVIEW: ${selectedTask.toUpperCase()}`} data={originalData} variant="before" />
                     </div>
                 </div>
             </div>
@@ -462,67 +314,51 @@ export default function Home() {
 
         {viewMode === "refiner" && (
             <div className="grid grid-cols-12 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="col-span-12 flex items-center justify-between bg-zinc-950/40 border border-zinc-900 rounded-2xl p-6 backdrop-blur-sm shadow-xl">
+                <div className="col-span-12 flex items-center justify-between bg-zinc-950/40 border border-zinc-900 rounded-2xl p-6 backdrop-blur-sm">
                     <div>
                         <h2 className="text-2xl font-bold text-white mb-1">Automated Data Refiner</h2>
-                        <p className="text-xs text-zinc-500 italic">"Deep cleaning for custom datasets using Gemini Pro Baseline."</p>
+                        <p className="text-xs text-zinc-500">Upload your own dataset for deep cleaning with Gemini Baseline.</p>
                     </div>
                 </div>
 
                 <div className="col-span-12 lg:col-span-4 flex flex-col gap-6">
-                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-4 shadow-inner">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Custom Stream</h3>
-                            <button 
-                                onClick={() => fileInputRef.current?.click()}
-                                className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 rounded-lg text-[9px] font-black uppercase hover:bg-zinc-800 transition-all flex items-center gap-2"
-                            >
-                                <Upload className="w-3 h-3" /> Select File
-                            </button>
-                            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".csv,.json" className="hidden" />
+                    <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-8 flex flex-col items-center gap-6 text-center border-dashed group hover:border-indigo-500/50 transition-colors">
+                        <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center text-zinc-500 group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-xl shadow-black/40">
+                            <Upload className="w-7 h-7" />
                         </div>
-                        <p className="text-[10px] text-zinc-600 italic">"Upload a CSV/JSON file to repair outliers and missing values in real-time."</p>
+                        <div>
+                            <h3 className="font-bold text-zinc-200 mb-2">Drop your CSV / JSON</h3>
+                            <p className="text-[11px] text-zinc-600">The Gemini engine will automatically detect and fix outliers, duplicates, and missing values.</p>
+                        </div>
+                        <button 
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-6 py-2.5 bg-zinc-100 text-black rounded-lg text-xs font-black uppercase hover:bg-white transition-all"
+                        >
+                            Select File
+                        </button>
+                        <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".csv,.json" className="hidden" />
                     </div>
 
                     <button 
                         onClick={handleRunRefiner}
-                        disabled={(stage !== "loaded" && stage !== "completed") || isAuditing}
-                        className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-emerald-500 disabled:opacity-40 transition-all flex items-center justify-center gap-2 shadow-xl shadow-emerald-900/10"
+                        disabled={stage !== "loaded" && stage !== "completed"}
+                        className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold hover:bg-emerald-500 disabled:opacity-40 transition-all flex items-center justify-center gap-2 shadow-xl shadow-emerald-900/10"
                     >
                         {stage === "cleaning" ? <Activity className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                        {stage === "cleaning" ? "Refining..." : "Trigger AI Refinement"}
+                        {stage === "cleaning" ? "Refining Dataset..." : "Trigger Full Auto-Refine"}
                     </button>
 
                     {result && (
-                        <div className="flex flex-col gap-4 animate-in slide-in-from-top-4 duration-500">
-                            <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-4 shadow-xl">
-                                <h3 className="text-[10px] font-black uppercase text-zinc-600 flex items-center gap-2"><BarChart3 className="w-4 h-4"/> Refinement Metrics</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
-                                        <div className="text-[10px] text-zinc-500 uppercase mb-1">Quality Lift</div>
-                                        <div className="text-2xl font-black text-emerald-400">{isNaN(result.score) ? 0 : (result.score * 100).toFixed(0)}%</div>
-                                    </div>
-                                    <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
-                                        <div className="text-[10px] text-zinc-500 uppercase mb-1">Issues fixed</div>
-                                        <div className="text-2xl font-black text-indigo-400">{result.actions.length}</div>
-                                    </div>
+                        <div className="bg-zinc-950 border border-zinc-900 rounded-2xl p-6 flex flex-col gap-4 shadow-xl">
+                            <h3 className="text-[10px] font-black uppercase text-zinc-600 flex items-center gap-2"><BarChart3 className="w-4 h-4"/> Refinement Metrics</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
+                                    <div className="text-[10px] text-zinc-500 uppercase mb-1">Quality Lift</div>
+                                    <div className="text-2xl font-black text-emerald-400">{(result.score * 100).toFixed(0)}%</div>
                                 </div>
-                            </div>
-                            
-                            {/* Auto-Refiner Reward */}
-                            <div className="bg-gradient-to-r from-zinc-900 to-black border border-zinc-800 rounded-2xl p-6 flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center">
-                                        <Zap className="w-6 h-6 text-yellow-400" />
-                                    </div>
-                                    <div>
-                                        <div className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Automation Bonus</div>
-                                        <div className="text-lg font-bold text-white">Efficiency Points Earned</div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 bg-zinc-800/50 px-4 py-2 rounded-xl border border-zinc-700">
-                                    <Coins className="w-4 h-4 text-amber-400" />
-                                    <span className="text-lg font-black text-white">+{Math.floor((result.score || 0) * 200)} <span className="text-[10px] text-zinc-500 ml-1 uppercase">DP</span></span>
+                                <div className="p-4 bg-black/40 rounded-xl border border-zinc-900">
+                                    <div className="text-[10px] text-zinc-500 uppercase mb-1">Issues fixed</div>
+                                    <div className="text-2xl font-black text-indigo-400">{result.actions.length}</div>
                                 </div>
                             </div>
                         </div>
