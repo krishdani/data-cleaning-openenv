@@ -149,17 +149,12 @@ def grade(task: str, data: List[Dict[str, Any]]) -> float:
 def get_issue_breakdown(data: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Get detailed breakdown of issues in dataset.
-
-    Returns:
-        Dictionary with issue counts
     """
     issues = detect_issues(data)
     breakdown: Dict[str, int] = {}
-
     for issue in issues:
         issue_type = issue["type"]
         breakdown[issue_type] = breakdown.get(issue_type, 0) + 1
-
     return breakdown
 
 
@@ -171,39 +166,36 @@ def calculate_quality_score(
     rewards: List[float]
 ) -> Tuple[float, Dict[str, Any]]:
     """
-    Calculate comprehensive quality score.
-
-    Combines:
-    - Issue reduction (0.5 weight)
-    - Reward accumulation (0.3 weight)
-    - Efficiency bonus (0.2 weight)
+    Calculate quality score (Balanced for Sparse Rewards).
+    60% Issue Reduction | 30% Success Signal | 10% Efficiency
     """
+    total_reward = sum(rewards) if rewards else 0.0
+    max_reward = max(rewards) if rewards else 0.0
+    
     metrics = {
         "task": task,
         "initial_issues": initial_issues,
         "final_issues": final_issues,
         "steps_taken": steps_taken,
-        "total_reward": sum(rewards) if rewards else 0.0,
-        "avg_reward": sum(rewards) / len(rewards) if rewards else 0.0,
+        "total_reward": total_reward,
+        "max_reward": max_reward,
     }
 
-    # Component 1: Issue reduction (50% weight)
+    # 1. Issue reduction (60% weight)
     if initial_issues > 0:
         issue_reduction = (initial_issues - final_issues) / initial_issues
     else:
         issue_reduction = 1.0 if final_issues == 0 else 0.0
+    issue_score = min(max(issue_reduction, 0.0), 1.0) * 0.6
 
-    issue_score = min(max(issue_reduction, 0.0), 1.0) * 0.5
+    # 2. Success Signal (30% weight) - max_reward is the final grade
+    reward_score = min(max(max_reward, 0.0), 1.0) * 0.3
 
-    # Component 2: Reward accumulation (30% weight)
-    max_reward = 15.0
-    reward_score = min(max(sum(rewards) / max_reward if rewards else 0.0, 0.0), 1.0) * 0.3
-
-    # Component 3: Efficiency (20% weight)
-    expected_steps = {"easy": 3, "medium": 5, "hard": 8}
-    max_steps_allowed = expected_steps.get(task, 5) * 2
-    efficiency = max(1.0 - (steps_taken / max_steps_allowed), 0.0)
-    efficiency_score = efficiency * 0.2
+    # 3. Efficiency (10% weight)
+    expected_steps = {"easy": 2, "medium": 4, "hard": 6}
+    eff_target = expected_steps.get(task, 5)
+    efficiency = max(1.0 - (steps_taken / (eff_target * 3)), 0.0)
+    efficiency_score = efficiency * 0.1
 
     final_score = issue_score + reward_score + efficiency_score
     metrics["score"] = _clamp(final_score)
