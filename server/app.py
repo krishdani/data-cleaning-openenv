@@ -319,16 +319,16 @@ def review_user_audit(req: AuditRequest) -> Dict[str, Any]:
 
     _, matched_score = calculate_score(user_issues, expected_issues)
 
-    # Fractional score in (0,1)
-    epsilon = 1e-6
+    # Fractional score in (0.001, 0.999)
+    epsilon = 0.001
     if len(expected_issues) > 0:
         base_score = matched_score / len(expected_issues)
     else:
         base_score = 0.5
     
-    score = max(epsilon, min(base_score, 1.0 - epsilon))
+    score = max(epsilon, min(base_score, 0.999))
     reward = (score * 2) - 1  # Map back to (-1, 1)
-    reward = max(-0.9999, min(reward, 0.9999))
+    reward = max(-0.999, min(reward, 0.999))
     tier = get_tier(score * 100)
 
     critique = f"Matched {matched_score:.1f}/{len(expected_issues)} issues ({round(score*100)}%)."
