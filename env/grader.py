@@ -6,19 +6,31 @@ Evaluates agent performance based on issue resolution and data quality.
 from typing import Dict, List, Any, Tuple
 from .utils import detect_issues
 
-# Use 0.01 as minimum so scores remain inside (0, 1) after 2-decimal formatting.
-EPS = 1e-2
+# Use 0.001 as minimum so scores remain inside (0, 1) strictly.
+EPS = 0.01
 
-def safe_score(score: float) -> float:
-    rounded = round(score, 2)
-    if rounded <= 0:
-        return EPS
-    if rounded >= 1:
-        return 1 - EPS
-    return rounded
+def safe_score(score: float | None) -> float:
+    if score is None:
+        return 0.5
+    try:
+        val = float(score)
+    except (ValueError, TypeError):
+        return 0.5
+        
+    # Clamp to strictly (0, 1)
+    if val <= 0:
+        return 0.01
+    if val >= 1:
+        return 0.99
+    return round(val, 2)
+
+def clamp_strict_score(score: float) -> float:
+    """Backwards compatibility alias for safe_score."""
+    return safe_score(score)
 
 def _clamp(score: float) -> float:
     return safe_score(score)
+
 
 
 def grade_easy(data: List[Dict[str, Any]]) -> float:
@@ -198,6 +210,21 @@ def calculate_quality_score(
     efficiency_score = efficiency * 0.1
 
     final_score = issue_score + reward_score + efficiency_score
-    metrics["score"] = _clamp(final_score)
+    clamped_score = _clamp(final_score)
+    metrics["score"] = clamped_score
 
-    return metrics["score"], metrics
+    # Tier Labeling Logic
+    if clamped_score >= 0.9:
+        metrics["tier"] = "Grand Slam"
+        metrics["critique"] = "Perfect execution! Data is pristine."
+    elif clamped_score >= 0.7:
+        metrics["tier"] = "Expert Clean"
+        metrics["critique"] = "Solid performance. Most issues resolved."
+    elif clamped_score >= 0.4:
+        metrics["tier"] = "Contributor"
+        metrics["critique"] = "Good start, but some corruption remains."
+    else:
+        metrics["tier"] = "Novice"
+        metrics["critique"] = "Incomplete cleanup. More focus needed."
+
+    return clamped_score, metrics

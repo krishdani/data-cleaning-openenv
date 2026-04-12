@@ -14,7 +14,8 @@ from env.grader import safe_score
 # ---------------------------------------------------------------------------
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4-turbo")
-HF_TOKEN = os.getenv("HF_TOKEN")
+# The competition platform provides HF_TOKEN for authentication
+HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 
 if HF_TOKEN is None:
     raise ValueError("HF_TOKEN environment variable is required")
@@ -47,10 +48,10 @@ def log_step(step, action, reward, done, error=None):
         flush=True,
     )
 
-def log_end(success, steps, rewards):
+def log_end(success, steps, score, rewards):
     reward_values = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} rewards={reward_values}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={reward_values}",
         flush=True,
     )
 
@@ -159,14 +160,14 @@ def run_task(task_name: str):
         # Score calculation for internal success tracking
         total_reward = sum(rewards)
         raw_score = total_reward / MAX_TOTAL_REWARD if MAX_TOTAL_REWARD > 0 else 0.5
-        score = max(0.0, min(safe_score(raw_score), 1.0))
+        score = safe_score(raw_score)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
     finally:
         env.close()
-        log_end(success, steps_taken, rewards)
+        log_end(success, steps_taken, score, rewards)
 
 def main():
     try:
